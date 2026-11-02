@@ -1,2 +1,970 @@
-# einfachmia161.github.io
-Nu-7 Roster DB conception
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Nu-7 Database</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column (max 1080px), wide blocks (diagrams, tables, board) scroll inside their own frames */
+:root {
+  --bg: #edf0f2; --surface: #ffffff; --sunk: #e3e8ec; --ink: #16202a; --muted: #586571; --line: #d0d8df;
+  --accent: #2c5d8a; --accent-soft: #dbe7f2;
+  --ok: #2b7549; --ok-soft: #dcefe3; --warn: #a3670f; --warn-soft: #f6ead3; --bad: #ad3434; --bad-soft: #f5dddd;
+  --f-display: "Saira Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161b; --surface: #192028; --sunk: #0d1216; --ink: #e2e8ee; --muted: #93a1ad; --line: #2b3641;
+  --accent: #82b2de; --accent-soft: #1e3247;
+  --ok: #63c08a; --ok-soft: #173326; --warn: #e2aa4f; --warn-soft: #3a2c14; --bad: #e57b7b; --bad-soft: #3d1c1c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11161b; --surface: #192028; --sunk: #0d1216; --ink: #e2e8ee; --muted: #93a1ad; --line: #2b3641;
+  --accent: #82b2de; --accent-soft: #1e3247;
+  --ok: #63c08a; --ok-soft: #173326; --warn: #e2aa4f; --warn-soft: #3a2c14; --bad: #e57b7b; --bad-soft: #3d1c1c; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--f-body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 56px; }
+h1, h2, h3 { font-family: var(--f-display); font-weight: 700; line-height: 1.1; text-wrap: balance; margin: 0; letter-spacing: .01em; }
+h1 { font-size: clamp(34px, 6vw, 54px); text-transform: uppercase; }
+h2 { font-size: 30px; text-transform: uppercase; }
+h3 { font-size: 21px; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--f-mono); font-size: .88em; }
+a { color: var(--accent); }
+.eyebrow { font: 500 12px/1 var(--f-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+section { display: grid; gap: 18px; min-width: 0; }
+.lede { font-size: 17px; color: var(--muted); max-width: 70ch; }
+
+header { display: grid; gap: 16px; border-bottom: 3px solid var(--ink); padding-bottom: 28px; }
+.stats { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-top: 6px; }
+.stat { display: grid; gap: 2px; }
+.stat b { font: 700 28px/1 var(--f-display); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+
+.frame { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 11px/1.3 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: var(--sunk); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.n { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+.tag { display: inline-block; font: 500 11px/1 var(--f-mono); padding: 4px 7px; border-radius: 3px; white-space: nowrap; letter-spacing: .02em; }
+.t-master { background: var(--accent-soft); color: var(--accent); }
+.t-log { background: var(--ok-soft); color: var(--ok); }
+.t-view { background: var(--sunk); color: var(--muted); border: 1px solid var(--line); }
+.t-raw { background: var(--warn-soft); color: var(--warn); }
+.t-dead { background: var(--bad-soft); color: var(--bad); }
+
+.diagram-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.diagram-tabs button, .board-tabs button {
+  font: 500 13px/1 var(--f-body); padding: 9px 13px; border-radius: 4px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); cursor: pointer; }
+.diagram-tabs button[aria-selected="true"], .board-tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+button:focus-visible, input:focus-visible, label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.diagram { padding: 18px; min-width: 0; }
+.diagram pre.mermaid { margin: 0; background: transparent; }
+.note { font-size: 13px; color: var(--muted); }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.card ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.card li { font-size: 14px; }
+
+/* Promotion board demo */
+.board { display: grid; gap: 14px; }
+.board-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.reqs { display: flex; flex-wrap: wrap; gap: 8px; }
+.req-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 7px 11px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; cursor: pointer; }
+.req-toggle input { accent-color: var(--accent); margin: 0; }
+.req-toggle .kind { font: 500 10px/1 var(--f-mono); text-transform: uppercase; color: var(--muted); letter-spacing: .08em; }
+.req-toggle.off { opacity: .55; text-decoration: line-through; }
+.bt td { vertical-align: middle; }
+.bt .who { display: grid; gap: 3px; min-width: 190px; }
+.bt .who small { color: var(--muted); font: 12px var(--f-mono); }
+.cell-btn { width: 30px; height: 30px; border-radius: 4px; border: 1.5px solid var(--line); background: var(--surface); cursor: pointer; display: grid; place-items: center; font: 700 15px/1 var(--f-body); color: transparent; }
+.cell-btn[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.auto { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--f-mono); white-space: nowrap; }
+.auto i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.auto.yes i { background: var(--ok); } .auto.no i { background: var(--bad); }
+.auto.yes { color: var(--ok); } .auto.no { color: var(--bad); }
+th.dim, td.dim { opacity: .35; }
+.ready { font: 600 12px/1 var(--f-mono); padding: 6px 8px; border-radius: 3px; white-space: nowrap; }
+.ready.y { background: var(--ok-soft); color: var(--ok); } .ready.n { background: var(--sunk); color: var(--muted); }
+.status { font: 500 11px/1 var(--f-mono); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+
+.issues { display: grid; gap: 0; }
+.issue { display: grid; grid-template-columns: 110px 1fr; gap: 14px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.issue:last-child { border-bottom: 0; }
+.issue p { font-size: 14px; }
+@media (max-width: 560px) { .issue { grid-template-columns: 1fr; gap: 6px; } }
+
+.phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.phase { border-top: 3px solid var(--accent); background: var(--surface); padding: 16px; display: grid; gap: 8px; align-content: start; border-radius: 0 0 6px 6px; }
+.phase ul { margin: 0; padding-left: 18px; font-size: 14px; display: grid; gap: 3px; }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+summary { cursor: pointer; padding: 14px 18px; font-weight: 600; }
+details pre { margin: 0; padding: 18px; border-top: 1px solid var(--line); overflow-x: auto; font: 12.5px/1.55 var(--f-mono); background: var(--sunk); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">MTF Nu-7 "Hammer Down" · Database concept · 02 Nov 2026</div>
+  <h1>From Google Sheet to Nu-7 Database</h1>
+  <p class="lede">The workbook has 30 tabs. They hold four kinds of data: master data (who is who, which rank), logs (duty, trainings, tryouts, strikes …), views calculated from those (Roster, Activity Hub, Overview) and raw Google Forms responses. A database only stores the first two. Everything else is calculated live from them, so it can no longer drift apart.</p>
+  <div class="stats">
+    <div class="stat"><b>46</b><span>active members · 65 slots</span></div>
+    <div class="stat"><b>5,431</b><span>duty log entries</span></div>
+    <div class="stat"><b>685</b><span>tryouts</span></div>
+    <div class="stat"><b>357</b><span>promotions / demotions</span></div>
+    <div class="stat"><b>284</b><span>trainings</span></div>
+    <div class="stat"><b>153</b><span>discharges</span></div>
+  </div>
+</header>
+
+<section>
+  <div class="eyebrow">01 · Inventory</div>
+  <h2>What the 30 tabs contain</h2>
+  <p>Each tab is assigned one of these kinds. That decides whether it becomes a table, a calculated view, or is dropped.</p>
+  <div class="legend">
+    <span><span class="tag t-master">Master data</span> becomes a table</span>
+    <span><span class="tag t-log">Log</span> becomes a table</span>
+    <span><span class="tag t-view">View</span> calculated live</span>
+    <span><span class="tag t-raw">Form</span> becomes a web form</span>
+    <span><span class="tag t-dead">Broken / copy</span> dropped</span>
+  </div>
+  <div class="frame">
+    <table>
+      <thead><tr><th>Tab</th><th>Kind</th><th>New home</th></tr></thead>
+      <tbody>
+        <tr><td>Roster · Database · Activity Hub</td><td><span class="tag t-view">View</span></td><td><code>v_roster</code>: rank, status, strikes, hours, cooldown, last promotion, LOA, medals in <em>one</em> query</td></tr>
+        <tr><td>Promotion Requirements</td><td><span class="tag t-master">Master data</span></td><td><code>requirement</code> + <code>member_requirement</code> (the ticks), view <code>v_promotion_board</code></td></tr>
+        <tr><td>Duty Logs · RAW_DUTY_LOGGER</td><td><span class="tag t-log">Log</span> <span class="tag t-raw">Form</span></td><td><code>duty_log</code></td></tr>
+        <tr><td>Training Logs · RAW_TRAINING_LOGGER</td><td><span class="tag t-log">Log</span> <span class="tag t-raw">Form</span></td><td><code>training</code> + <code>training_attendee</code> (attendees linked instead of free text)</td></tr>
+        <tr><td>Tryout Logs · RAW_TRYOUT_LOGGER · RAW_TRYOUT_QUIZ · Tryout Quiz Answers</td><td><span class="tag t-log">Log</span> <span class="tag t-raw">Form</span></td><td><code>tryout</code> + <code>tryout_quiz</code> (answers stored as JSON)</td></tr>
+        <tr><td>Promotion &amp; Demotion Logs</td><td><span class="tag t-log">Log</span></td><td><code>rank_change</code>. Last promotion date and cooldown are calculated from it</td></tr>
+        <tr><td>Strike Logs · Infraction Logs</td><td><span class="tag t-log">Log</span></td><td><code>strike</code>, <code>infraction</code> (an infraction can point to the strike it turns into)</td></tr>
+        <tr><td>LOA &amp; ROA</td><td><span class="tag t-log">Log</span></td><td><code>leave</code>. LOA/ROA status follows automatically from the date range</td></tr>
+        <tr><td>Discharges</td><td><span class="tag t-log">Log</span></td><td><code>membership</code> (leave date, type, reason). Rejoining becomes possible</td></tr>
+        <tr><td>Blacklists · Pre-Tryout Checker</td><td><span class="tag t-log">Log</span> <span class="tag t-view">View</span></td><td><code>blacklist</code>. The check runs automatically when a tryout is entered</td></tr>
+        <tr><td>Medals · Medal Logs · MedalCode</td><td><span class="tag t-master">Master data</span> <span class="tag t-log">Log</span></td><td><code>medal_type</code> + <code>medal_award</code>. The MedalCode tab (999 rows of VLOOKUP) goes away</td></tr>
+        <tr><td>Battalions · Management</td><td><span class="tag t-master">Master data</span></td><td><code>battalion</code>, <code>unit_role</code> (lead / assistant with minimum rank)</td></tr>
+        <tr><td>Funds Logs</td><td><span class="tag t-log">Log</span></td><td><code>fund_transaction</code></td></tr>
+        <tr><td>Overview</td><td><span class="tag t-view">View</span></td><td>Dashboard: headcount, activity, slots, fund totals, weekly goals</td></tr>
+        <tr><td>Memorial Hall · Gallery</td><td><span class="tag t-master">Master data</span></td><td><code>memorial_entry</code>, <code>gallery_item</code></td></tr>
+        <tr><td>Activity Hub 1 (Omega-1) · Tryout Lookup Table (Epsilon-11)</td><td><span class="tag t-dead">Broken / copy</span></td><td>Dropped. Both are templates copied from other MTFs and full of <code>#REF!</code>. The lookup becomes a filter on <code>tryout</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">02 · Database diagram</div>
+  <h2>The data model</h2>
+  <p>The key building block is <code>person</code>, identified by <strong>Steam ID</strong>. Everyone who has ever appeared (recruit, member, former member, blacklisted) is exactly one person. Names change, the Steam ID doesn't. In the sheet, the same Steam ID shows up under as many as three names (see section 06).</p>
+  <div class="diagram-tabs" role="tablist" aria-label="Diagram part">
+    <button role="tab" id="dt-core" aria-selected="true" data-d="core">Core &amp; requirements</button>
+    <button role="tab" id="dt-logs" aria-selected="false" data-d="logs">Logs</button>
+    <button role="tab" id="dt-org" aria-selected="false" data-d="org">Organisation &amp; honours</button>
+  </div>
+  <div class="frame diagram" data-panel="core">
+<pre class="mermaid">
+erDiagram
+  RANK_CATEGORY ||--o{ RANK : groups
+  RANK ||--o{ MEMBERSHIP : "current rank"
+  PERSON ||--o{ MEMBERSHIP : "serves in (join/leave)"
+  PERSON ||--o{ PERSON_ALIAS : "previous names"
+  RANK ||--o{ REQUIREMENT : "required for next rank"
+  QUALIFICATION |o--o{ REQUIREMENT : "can check automatically"
+  MEMBERSHIP ||--o{ MEMBER_REQUIREMENT : ticks
+  REQUIREMENT ||--o{ MEMBER_REQUIREMENT : "ticked for"
+  PERSON ||--o{ PERSON_QUALIFICATION : holds
+  QUALIFICATION ||--o{ PERSON_QUALIFICATION : "granted to"
+  PERSON ||--o{ APP_USER : "logs in as"
+
+  PERSON {
+    uuid id PK
+    text steam_id UK "STEAM_0:X:Y"
+    text discord_id UK "for Discord login"
+    text discord_username
+    text display_name "current name"
+  }
+  PERSON_ALIAS {
+    uuid person_id FK
+    text name
+    date seen_from
+  }
+  MEMBERSHIP {
+    uuid id PK
+    uuid person_id FK
+    int rank_id FK
+    date recruited_at
+    date left_at "null = active"
+    text discharge_type "Honourable/Dishonourable"
+    text discharge_reason
+    uuid discharged_by FK
+    text status_override "Touch Grass etc."
+    text personnel_file_url
+    text notes
+  }
+  RANK_CATEGORY {
+    int id PK
+    text name "RegCom, CO, NCO, Enlisted"
+    int sort_order
+  }
+  RANK {
+    int id PK
+    text code UK "PVT, SPC, ... LTCOM, COM"
+    text name
+    int category_id FK
+    int sort_order
+    int max_slots
+    numeric weekly_hours_required
+    int cooldown_days
+    text insignia_url
+  }
+  REQUIREMENT {
+    int id PK
+    int from_rank_id FK "PVT for PVT->SPC"
+    text title
+    text kind "manual, qualification, activity, hosted_training, hosted_tryout, cooldown"
+    int qualification_id FK
+    jsonb params "e.g. count 1, days 14"
+    int sort_order
+    bool is_active "requirement on/off"
+  }
+  MEMBER_REQUIREMENT {
+    uuid membership_id PK
+    int requirement_id PK
+    bool done
+    timestamptz done_at
+    uuid signed_off_by FK
+    text note
+  }
+  QUALIFICATION {
+    int id PK
+    text name "Drivers, Medical, CL3/CL4 Hack ..."
+  }
+  PERSON_QUALIFICATION {
+    uuid person_id PK
+    int qualification_id PK
+    date granted_at
+    uuid granted_by FK
+  }
+  APP_USER {
+    uuid id PK
+    uuid person_id FK
+    text app_role "viewer, nco, officer, regcom, admin"
+  }
+</pre>
+  </div>
+  <div class="frame diagram" data-panel="logs" hidden>
+<pre class="mermaid">
+erDiagram
+  PERSON ||--o{ DUTY_LOG : logs
+  PERSON ||--o{ TRAINING : hosts
+  TRAINING_TYPE ||--o{ TRAINING : type
+  TRAINING ||--o{ TRAINING_ATTENDEE : attendees
+  PERSON |o--o{ TRAINING_ATTENDEE : attends
+  PERSON ||--o{ TRYOUT : "recruit / host"
+  TRYOUT ||--o| TRYOUT_QUIZ : quiz
+  PERSON ||--o{ RANK_CHANGE : "receives / issues"
+  RANK ||--o{ RANK_CHANGE : "from / to"
+  PERSON ||--o{ STRIKE : "receives / issues"
+  PERSON ||--o{ INFRACTION : "receives / issues"
+  INFRACTION |o--o| STRIKE : "becomes"
+  PERSON ||--o{ LEAVE : requests
+
+  DUTY_LOG {
+    bigint id PK
+    uuid person_id FK
+    date logged_on
+    numeric hours
+    int rank_id FK "rank at the time"
+    text comment
+  }
+  TRAINING {
+    bigint id PK
+    uuid host_id FK
+    int type_id FK
+    timestamptz held_at
+    text description
+    text comment
+  }
+  TRAINING_TYPE {
+    int id PK
+    text name "Basic, Hacking, Attack & Defense ..."
+    bool is_basic_training
+  }
+  TRAINING_ATTENDEE {
+    bigint training_id PK
+    uuid person_id "null if unknown"
+    text raw_name "original text"
+  }
+  TRYOUT {
+    bigint id PK
+    uuid recruit_id FK
+    uuid host_id FK
+    timestamptz held_at
+    text result "Passed/Failed"
+    numeric strikes
+    text comment
+  }
+  TRYOUT_QUIZ {
+    bigint tryout_id PK
+    int score
+    int max_score
+    jsonb answers
+  }
+  RANK_CHANGE {
+    bigint id PK
+    uuid person_id FK
+    int from_rank_id FK
+    int to_rank_id FK
+    text kind "promoted, demoted, bookkeeping"
+    date effective_on
+    uuid officer_id FK
+    text comment
+  }
+  STRIKE {
+    bigint id PK
+    uuid person_id FK
+    numeric weight "0.5 or 1"
+    text reason
+    date issued_on
+    date expires_on
+    uuid officer_id FK
+    text appeal_status
+    uuid appealed_to FK
+    text appeal_reason
+  }
+  INFRACTION {
+    bigint id PK
+    uuid person_id FK
+    text reason
+    text punishment
+    uuid officer_id FK
+    bool executed
+    uuid executed_by FK
+    date becomes_strike_on
+    bigint strike_id FK
+  }
+  LEAVE {
+    bigint id PK
+    uuid person_id FK
+    text type "LOA, ROA"
+    date starts_on
+    date ends_on
+    text reason
+    uuid approved_by FK
+    text officer_note
+  }
+</pre>
+  </div>
+  <div class="frame diagram" data-panel="org" hidden>
+<pre class="mermaid">
+erDiagram
+  MEDAL_TYPE ||--o{ MEDAL_AWARD : awarded
+  PERSON ||--o{ MEDAL_AWARD : "receives / issues"
+  BATTALION ||--o{ BATTALION_MEMBER : has
+  PERSON ||--o{ BATTALION_MEMBER : "is in"
+  UNIT ||--o{ UNIT_ROLE : "lead / assistant"
+  PERSON ||--o{ UNIT_ROLE : "responsible for"
+  PERSON ||--o{ BLACKLIST : "blacklisted / blacklists"
+  PERSON ||--o{ FUND_TRANSACTION : "pays in / spends"
+  PERSON |o--o{ MEMORIAL_ENTRY : honoured
+
+  MEDAL_TYPE {
+    int id PK
+    text family "Medal of Valor, Star Medal ..."
+    text grade "Bronze, Silver, Gold ..."
+    text criteria
+    text issued_by_rule "e.g. REGCOM consensus"
+    text image_url
+  }
+  MEDAL_AWARD {
+    bigint id PK
+    uuid person_id FK
+    int medal_type_id FK
+    date awarded_on
+    uuid issuer_id FK
+  }
+  BATTALION {
+    int id PK
+    text name "Iron Vanguards, Phantom"
+    text specialisation
+    int min_rank_id FK
+    text handbook_url
+  }
+  BATTALION_MEMBER {
+    int battalion_id PK
+    uuid person_id PK
+    date joined_on
+  }
+  UNIT {
+    int id PK
+    text name "Roster, Training & Tryout, Docs, Activity"
+    int lead_min_rank_id FK
+    int assistant_min_rank_id FK
+  }
+  UNIT_ROLE {
+    int unit_id PK
+    uuid person_id PK
+    text role "lead, assistant"
+  }
+  BLACKLIST {
+    bigint id PK
+    uuid person_id FK
+    text reason
+    int appealable_to_rank_id FK
+    uuid officer_id FK
+    date issued_on
+    date expires_on "null = appeal only"
+    date lifted_on
+    uuid lifted_by FK
+  }
+  FUND_TRANSACTION {
+    bigint id PK
+    uuid person_id FK
+    numeric amount "negative = payout"
+    text reason
+    date booked_on
+  }
+  MEMORIAL_ENTRY {
+    int id PK
+    uuid person_id FK
+    text section "RegCom, CO, Other"
+    text rank_code
+    text quote
+  }
+</pre>
+  </div>
+  <p class="note">There is also an <code>audit_log</code> table (who changed which value and when). Triggers attach it to every table, and it replaces the Google Sheets version history.</p>
+</section>
+
+<section>
+  <div class="eyebrow">03 · Requirements on the website</div>
+  <h2>Promotion board: keep ticking requirements with a click</h2>
+  <p>This is how the "Promotion Requirements" tab would look on the website. Requirements and members come from your sheet. There are two kinds of requirements. <strong>Manual</strong> ones (licences, hacks, basic training) are ticked by an officer with a click, which is saved with their name and the time. <strong>Automatic</strong> ones (activity, cooldown, later also "host 1 training" or "perform a tryout") are calculated by the database itself from the logs. The switches at the top turn each requirement on or off for a stage.</p>
+  <div class="board" id="board">
+    <div class="board-tabs" role="tablist" aria-label="Promotion stage" id="boardTabs"></div>
+    <div class="reqs" id="reqToggles"></div>
+    <div class="frame"><table class="bt" id="boardTable"></table></div>
+    <p class="note">Demo: changes stay in this browser window only and are not saved anywhere. Calculated automatically here are activity (roster hours ≥ 6 h per week, an assumption based on the Activity Hub) and cooldown (the roster's "Cooldown" column). In the real database both come from <code>duty_log</code> and <code>rank_change</code>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">04 · Calculated, not typed</div>
+  <h2>What the database works out itself</h2>
+  <p>Today these values are separate columns in the sheet that have to be maintained by hand or pulled across tabs with formulas. In the database they are never stored, but calculated fresh on every query.</p>
+  <div class="frame">
+    <table>
+      <thead><tr><th>Sheet column</th><th>Calculation</th></tr></thead>
+      <tbody>
+        <tr><td>Strikes</td><td>Sum of <code>strike.weight</code> where <code>expires_on &gt; today</code> and not successfully appealed</td></tr>
+        <tr><td>Hours · Hrs / 3 Days · Hrs Remaining</td><td>Sum of <code>duty_log.hours</code> for the current week or last 3 days; remaining = <code>rank.weekly_hours_required − hours</code></td></tr>
+        <tr><td>Status (Active, Semi-Active …)</td><td>LOA/ROA if today falls in a <code>leave</code> period, otherwise a level based on weekly hours. Thresholds are a setting, manual exceptions via <code>status_override</code></td></tr>
+        <tr><td>Last Promotion Date · Cooldown</td><td>Latest <code>rank_change</code> of kind "promoted"; cooldown is active while <code>effective_on + rank.cooldown_days &gt; today</code>. Notes like "Real Promotion date …" are no longer needed</td></tr>
+        <tr><td>Last LOA/ROA Start/Expiry/Type</td><td>Latest entry in <code>leave</code></td></tr>
+        <tr><td>Medals (Roster) · MedalCode</td><td><code>medal_award</code> grouped per person</td></tr>
+        <tr><td>Overview: personnel, slots 47/65, funds</td><td>Counts by <code>rank_category</code>, sum of <code>rank.max_slots</code>, totals over <code>fund_transaction</code></td></tr>
+        <tr><td>Management: trainings/tryouts in the last 7 days</td><td>Counts in <code>training</code> / <code>tryout</code></td></tr>
+        <tr><td>Pre-Tryout Checker</td><td>When a tryout is entered, the database checks <code>blacklist</code> for the Steam ID and warns straight away</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">05 · The website</div>
+  <h2>Pages, roles and tech</h2>
+  <div class="cols">
+    <div class="card">
+      <h3>Pages</h3>
+      <ul>
+        <li><strong>Roster</strong>: publicly readable, grouped by category and rank, showing open slots</li>
+        <li><strong>Personnel file</strong>: everything about one person on one page (ranks, strikes, LOAs, medals, trainings, duty hours). Fields are editable in place</li>
+        <li><strong>Promotion board</strong>: like the demo above, with a "Promote" button that creates the <code>rank_change</code></li>
+        <li><strong>Log forms</strong>: duty, training, tryout + quiz, strike, LOA. They replace the Google Forms; names are picked from a search instead of typed</li>
+        <li><strong>Overview</strong>: headcount, activity, funds, weekly goals</li>
+        <li><strong>Admin</strong>: manage ranks, requirements, medals, battalions</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Roles</h3>
+      <ul>
+        <li><strong>Guest</strong>: view roster, medals, Memorial Hall</li>
+        <li><strong>Member</strong> (Discord login): own file, log duty and LOA</li>
+        <li><strong>NCO</strong> (CPL+): log trainings and tryouts, tick requirements up to SGT</li>
+        <li><strong>Officer</strong> (LT+): strikes, promotions up to CSG, all requirements</li>
+        <li><strong>RegCom</strong>: everything, including changing requirements and ranks, blacklists</li>
+      </ul>
+      <p class="note">The role comes from the rank plus <code>unit_role</code> (e.g. Roster Manager). It is enforced in the database itself (Row Level Security), not only in the interface.</p>
+    </div>
+    <div class="card">
+      <h3>Recommended stack</h3>
+      <ul>
+        <li><strong>Supabase</strong>: Postgres, Discord login, permission rules and an automatic API in one; the free tier is enough for this amount of data</li>
+        <li><strong>Frontend</strong>: SvelteKit or Next.js, hosted on Vercel</li>
+        <li><strong>Usable right away</strong>: to start, Supabase's table editor (or NocoDB on the same database) is enough for editing. The custom pages can be added step by step</li>
+        <li><strong>Optional</strong>: a Discord bot for <code>/duty 2</code> or <code>/loa</code></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">06 · Found while reviewing</div>
+  <h2>Data problems the database prevents</h2>
+  <div class="frame issues">
+    <div class="issue"><span class="tag t-dead">Identity</span><p><strong>J. 'GHOST' Ken</strong> (currently Sergeant) has the same Steam ID <code>STEAM_0:0:634558185</code> as "Boris 'Ghost' Ken" on the blacklist (03/03/2025) and "Juan 'GHOST' Ken" in the medals. With <code>person</code> plus the blacklist check, this would have been caught at the tryout. Please check whether the appeal went through.</p></div>
+    <div class="issue"><span class="tag t-dead">Identity</span><p><code>STEAM_0:0:958037900</code> is "Adrian 'Gambit' Pierce" (Commander bookkeeping, strikes) and today "Sebastian 'Bluebird' Schuster" (Private). <code>STEAM_0:1:642021464</code> is both "Dolphin" and "Adam Zawada [SG-RCT]". Solved with <code>person_alias</code>.</p></div>
+    <div class="issue"><span class="tag t-raw">Mapping</span><p>Training Logs 27/10/2026: host "Troy 'Grapes Ivanov", but with Krater J.'s Steam ID. Attendees are free text ("Vidar, Seth, West, Richard clark …") and can't be analysed. On import, each name is matched to a person or kept as <code>raw_name</code>.</p></div>
+    <div class="issue"><span class="tag t-raw">Mismatch</span><p>Activity Hub and Roster contradict each other: West is "Inactive" there with a promotion on 11/07/2026, but "Active" in the Roster with 30/10/2026. Three tabs (Roster, Database, Activity Hub) maintain the same columns separately.</p></div>
+    <div class="issue"><span class="tag t-raw">Format</span><p>Date "10/10/1026" (Greg 'johnson' Shéf) and "19/9/2026" in Funds. Ranks typed as free text in the forms ("LT Commander", "Major", "MaJ"). The funds column is labelled CA$, a note says "£20,000". In the database, data types and dropdowns enforce the right format.</p></div>
+    <div class="issue"><span class="tag t-dead">Broken</span><p>"Activity Hub 1" (Omega-1) and "Tryout Lookup Table" (Epsilon-11) are copied templates full of <code>#REF!</code>; Management and Funds contain <code>#N/A</code>/<code>#REF!</code>. Training Logs has 758 empty rows.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">07 · Migration</div>
+  <h2>Four steps from sheet to website</h2>
+  <div class="phases">
+    <div class="phase"><h3>1 · Schema &amp; import</h3><ul><li>Create the tables in Supabase (SQL below)</li><li>Import script: read every tab as CSV, merge people by Steam ID</li><li>Output a conflict list (see 06) and resolve it by hand</li></ul></div>
+    <div class="phase"><h3>2 · Editing without custom pages</h3><ul><li>Set up Discord login and roles</li><li>Maintain data via the Supabase editor / NocoDB</li><li>Keep the sheet read-only alongside</li></ul></div>
+    <div class="phase"><h3>3 · Custom website</h3><ul><li>Roster, personnel file, promotion board</li><li>Log forms replace Google Forms</li><li>Overview dashboard</li></ul></div>
+    <div class="phase"><h3>4 · Automate</h3><ul><li>Automatic requirements from logs</li><li>Strike expiry, LOA end, cooldown without manual work</li><li>Optional Discord bot and weekly report</li></ul></div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">08 · For implementation</div>
+  <h2>SQL schema (Postgres / Supabase)</h2>
+  <details>
+    <summary>Show schema</summary>
+<pre id="sql">-- ===== Core =====
+create table rank_category (
+  id serial primary key,
+  name text not null unique,              -- Regimental Command, Commissioned Officers, NCO, Enlisted
+  sort_order int not null
+);
+
+create table rank (
+  id serial primary key,
+  code text not null unique,              -- PVT, SPC, LCPL, CPL, SGT, CSG, LT, CPT, MAJ, LTCOM, COM
+  name text not null,
+  category_id int not null references rank_category,
+  sort_order int not null,                -- 1 = PVT ... 11 = COM
+  max_slots int,
+  weekly_hours_required numeric(4,1) default 6,
+  cooldown_days int default 7,
+  insignia_url text
+);
+
+create table person (
+  id uuid primary key default gen_random_uuid(),
+  steam_id text not null unique check (steam_id ~ '^STEAM_0:[01]:[0-9]+$'),
+  discord_id text unique,
+  discord_username text,
+  display_name text not null,
+  created_at timestamptz default now()
+);
+
+create table person_alias (
+  person_id uuid references person on delete cascade,
+  name text not null,
+  seen_from date,
+  primary key (person_id, name)
+);
+
+create table membership (
+  id uuid primary key default gen_random_uuid(),
+  person_id uuid not null references person,
+  rank_id int not null references rank,
+  recruited_at date not null,
+  left_at date,
+  discharge_type text check (discharge_type in ('honourable','dishonourable')),
+  discharge_reason text,
+  discharged_by uuid references person,
+  status_override text,                   -- e.g. 'Touch Grass'
+  personnel_file_url text,
+  notes text
+);
+-- at most one active membership per person
+create unique index one_active_membership on membership (person_id) where left_at is null;
+
+-- ===== Requirements =====
+create table qualification (
+  id serial primary key,
+  name text not null unique               -- Drivers License, Medical License, CL3 Hack, CL4 Hack ...
+);
+
+create table person_qualification (
+  person_id uuid references person,
+  qualification_id int references qualification,
+  granted_at date not null default current_date,
+  granted_by uuid references person,
+  primary key (person_id, qualification_id)
+);
+
+create table requirement (
+  id serial primary key,
+  from_rank_id int not null references rank,   -- applies to promotion FROM this rank
+  title text not null,
+  kind text not null check (kind in
+    ('manual','qualification','activity','hosted_training','hosted_tryout','attended_basic','cooldown')),
+  qualification_id int references qualification,
+  params jsonb default '{}',              -- e.g. {"count":1,"days":14}
+  sort_order int not null default 0,
+  is_active boolean not null default true
+);
+
+create table member_requirement (
+  membership_id uuid references membership on delete cascade,
+  requirement_id int references requirement on delete cascade,
+  done boolean not null default false,
+  done_at timestamptz,
+  signed_off_by uuid references person,
+  note text,
+  primary key (membership_id, requirement_id)
+);
+
+-- ===== Logs =====
+create table duty_log (
+  id bigserial primary key,
+  person_id uuid not null references person,
+  logged_on date not null,
+  hours numeric(4,1) not null check (hours >= 0),
+  rank_id int references rank,
+  comment text
+);
+
+create table training_type (
+  id serial primary key,
+  name text not null unique,
+  is_basic_training boolean default false
+);
+
+create table training (
+  id bigserial primary key,
+  host_id uuid not null references person,
+  type_id int not null references training_type,
+  held_at timestamptz not null,
+  description text,
+  comment text
+);
+
+create table training_attendee (
+  training_id bigint references training on delete cascade,
+  person_id uuid references person,
+  raw_name text,
+  unique (training_id, person_id)
+);
+
+create table tryout (
+  id bigserial primary key,
+  recruit_id uuid not null references person,
+  host_id uuid not null references person,
+  held_at timestamptz not null,
+  result text not null check (result in ('passed','failed')),
+  strikes numeric(3,1) default 0,
+  comment text
+);
+
+create table tryout_quiz (
+  tryout_id bigint primary key references tryout on delete cascade,
+  score int, max_score int default 12,
+  answers jsonb
+);
+
+create table rank_change (
+  id bigserial primary key,
+  person_id uuid not null references person,
+  from_rank_id int references rank,
+  to_rank_id int not null references rank,
+  kind text not null check (kind in ('promoted','demoted','bookkeeping')),
+  effective_on date not null,
+  officer_id uuid references person,
+  comment text
+);
+
+create table strike (
+  id bigserial primary key,
+  person_id uuid not null references person,
+  weight numeric(3,1) not null check (weight > 0),
+  reason text not null,
+  issued_on date not null default current_date,
+  expires_on date not null,
+  officer_id uuid references person,
+  appeal_status text check (appeal_status in ('none','pending','granted','denied')) default 'none',
+  appealed_to uuid references person,
+  appeal_reason text
+);
+
+create table infraction (
+  id bigserial primary key,
+  person_id uuid not null references person,
+  reason text not null,
+  punishment text,
+  officer_id uuid references person,
+  executed boolean default false,
+  executed_by uuid references person,
+  becomes_strike_on date,
+  strike_id bigint references strike
+);
+
+create table leave (
+  id bigserial primary key,
+  person_id uuid not null references person,
+  type text not null check (type in ('LOA','ROA')),
+  starts_on date not null,
+  ends_on date not null check (ends_on >= starts_on),
+  reason text,
+  approved_by uuid references person,
+  officer_note text
+);
+
+-- ===== Organisation & honours =====
+create table blacklist (
+  id bigserial primary key,
+  person_id uuid not null references person,
+  reason text not null,
+  appealable_to_rank_id int references rank,
+  officer_id uuid references person,
+  issued_on date not null,
+  expires_on date,                        -- null = appeal only
+  lifted_on date,
+  lifted_by uuid references person
+);
+
+create table medal_type (id serial primary key, family text not null, grade text,
+  criteria text, issued_by_rule text, image_url text, unique (family, grade));
+create table medal_award (id bigserial primary key, person_id uuid not null references person,
+  medal_type_id int not null references medal_type, awarded_on date not null, issuer_id uuid references person);
+
+create table battalion (id serial primary key, name text not null unique, specialisation text,
+  min_rank_id int references rank, handbook_url text);
+create table battalion_member (battalion_id int references battalion, person_id uuid references person,
+  joined_on date default current_date, primary key (battalion_id, person_id));
+
+create table unit (id serial primary key, name text not null unique,
+  lead_min_rank_id int references rank, assistant_min_rank_id int references rank);
+create table unit_role (unit_id int references unit, person_id uuid references person,
+  role text check (role in ('lead','assistant')), primary key (unit_id, person_id));
+
+create table fund_transaction (id bigserial primary key, person_id uuid references person,
+  amount numeric(12,2) not null, reason text, booked_on date not null);
+
+create table memorial_entry (id serial primary key, person_id uuid references person,
+  section text, rank_code text, name text not null, quote text);
+
+-- ===== Roster view (replaces Roster / Database / Activity Hub) =====
+create view v_roster as
+select m.id as membership_id, p.display_name, p.steam_id, p.discord_username,
+       r.code as rank, r.sort_order as rank_order, rc.name as category,
+       coalesce(s.points, 0)              as strikes,
+       coalesce(d.week_hours, 0)          as week_hours,
+       greatest(r.weekly_hours_required - coalesce(d.week_hours,0), 0) as hours_remaining,
+       lp.effective_on                    as last_promotion,
+       (lp.effective_on + r.cooldown_days > current_date) as on_cooldown,
+       coalesce(m.status_override, lv.type,
+         case when coalesce(d.week_hours,0) = 0 then 'Inactive'
+              when d.week_hours < r.weekly_hours_required then 'Semi-Active'
+              when d.week_hours < 25 then 'Active'
+              when d.week_hours < 30 then 'Very-Active'
+              else 'Extremely-Active' end) as status
+from membership m
+join person p on p.id = m.person_id
+join rank r on r.id = m.rank_id
+join rank_category rc on rc.id = r.category_id
+left join lateral (select sum(weight) points from strike
+  where person_id = p.id and expires_on > current_date and appeal_status <> 'granted') s on true
+left join lateral (select sum(hours) week_hours from duty_log
+  where person_id = p.id and logged_on >= date_trunc('week', current_date)) d on true
+left join lateral (select effective_on from rank_change
+  where person_id = p.id and kind = 'promoted' order by effective_on desc limit 1) lp on true
+left join lateral (select type from leave
+  where person_id = p.id and current_date between starts_on and ends_on limit 1) lv on true
+where m.left_at is null;</pre>
+  </details>
+  <p class="note">The status thresholds (25 h / 30 h) are estimated from the current roster values and belong in a settings table later.</p>
+</section>
+
+</div>
+
+<script>
+// Diagram tabs
+document.querySelectorAll('.diagram-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.diagram-tabs button').forEach(b => b.setAttribute('aria-selected', b === btn));
+    document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== btn.dataset.d; });
+  });
+});
+
+// Promotion board demo — members and requirements from the Nu-7 sheet (Roster + Promotion Requirements tabs)
+// [name, steamId, status, strikes, hours, cooldown]
+const M = {
+  PVT: [["Orca Masa","STEAM_0:0:617061850","Inactive",0,0,false],["Edward Bellvin","STEAM_0:1:23857877","Inactive",0,0,false],["Jay 'Ghost' bank","STEAM_0:0:570073406","Semi-Active",0,4,false],["Steve stevenson","STEAM_0:0:188748316","Inactive",0,0,false],["Fionn 'Fianóglach'","STEAM_0:0:202131937","Inactive",0,0,false],["Krater J.","STEAM_0:1:111662696","Active",0,8,false],["Sebastian 'Bluebird' Schuster","STEAM_0:0:958037900","Inactive",0,0,false],["Szarlota Pocisk","STEAM_0:0:638396784","Inactive",0,0,false],["Saphira Harlow","STEAM_0:0:580627159","Inactive",0,0,false],["Liam 'Verve' Ashcroft","STEAM_0:1:580937898","Inactive",0,0,false],["Rhys Steele","STEAM_0:1:329149835","Active",0,9,false],["Senkai","STEAM_0:1:86542664","Inactive",0,0,true],["Tyson Olsen","STEAM_0:1:567512218","Inactive",0,0,true],["Glen 'Gaffer' Fowler","STEAM_0:1:124459201","Inactive",0,0,false],["E. 'Orca' Doom","STEAM_0:0:800806275","Active",0,5,false],["Kurt 'Gunsche'","STEAM_0:0:143522965","Active",0,8,false]],
+  SPC: [["Ali Solace","STEAM_0:0:865390867","Active",0,5,true],["Walee","STEAM_0:1:570848771","Active",0,8,true]],
+  LCPL: [["John Mckernel [ASPO]","STEAM_0:0:618433543","Semi-Active",0,2,false]],
+  CPL: [["Hank Watson","STEAM_0:0:557997984","Inactive",1,0,false],["Greg 'johnson' Shéf","STEAM_0:1:176290891","Semi-Active",0,3.5,false],["Sam 'Thug' Harim","STEAM_0:1:183388940","Inactive",1,0,false],["Ryley Roberson","STEAM_0:1:588896009","Active",0,15,false],["Richard Clark","STEAM_0:1:230304734","Active",0,13,false]],
+  SGT: [["Winston 'Duke' Barns","STEAM_0:0:803597514","Active",0,19,false],["Vidar 'fulcrum'","STEAM_0:0:465391521","Active",0,6,false],["J. 'GHOST' Ken","STEAM_0:0:634558185","Inactive",0,0,false],["Liz Augustine","STEAM_0:0:644025067","LOA",0,0,false],["Cadet Twelve 'Suave' Holloway","STEAM_0:0:82367561","Extremely-Active",1,31,true],["Dill Franky","STEAM_0:0:25541681","ROA",0,4.6,false]],
+  CSG: [["Tom Hans","STEAM_0:0:501737251","LOA",0,3,true],["H 'Dobson'","STEAM_0:0:187920607","Active",0,8,false],["Specter Kaine","STEAM_0:0:47809937","Touch Grass",1,75,false],["Talinum 'Shef'","STEAM_0:0:161321423","Active",0,6,false],["Stephan 'ShankZ' Wilson","STEAM_0:0:630118090","Inactive",0,0,false],["Ralph 'Gambler' Schumacher","STEAM_0:0:28837776","Active",0,9,false]]
+};
+const STAGES = [
+  { from: "PVT", to: "SPC", reqs: [["Maintain Activity Requirement","activity"],["Get Drivers License","qualification"],["Complete Basic Training","attended_basic"],["Cooldown expired","cooldown"]] },
+  { from: "SPC", to: "LCPL", reqs: [["Maintain Activity Requirement","activity"],["Get Medical License","qualification"],["Cooldown expired","cooldown"]] },
+  { from: "LCPL", to: "CPL", reqs: [["Maintain Activity Requirement","activity"],["Complete a Level 3 Hack","qualification"],["Get Armoured Vehicle License","qualification"],["Cooldown expired","cooldown"]] },
+  { from: "CPL", to: "SGT", reqs: [["Maintain Activity Requirement","activity"],["Heavy Weapons and Sniper License","qualification"],["Perform a Tryout","hosted_tryout"],["Cooldown expired","cooldown"]] },
+  { from: "SGT", to: "CSG", reqs: [["Maintain Activity Requirement","activity"],["Perform 1 Training (Bi-Weekly)","hosted_training"],["Complete a CL4 Hack","qualification"]] },
+  { from: "CSG", to: "LT", reqs: [["Maintain Activity Requirement","activity"],["Perform 1 Training (Bi-Weekly)","hosted_training"]] }
+];
+const KIND_LABEL = { activity: "auto", cooldown: "auto", qualification: "licence", attended_basic: "training", hosted_training: "auto later", hosted_tryout: "auto later" };
+const WEEKLY = 6;
+const state = { stage: 0, off: {}, done: {} };   // off["0:2"] = requirement disabled, done["0:2:STEAM..."] = ticked
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function autoValue(kind, m) {
+  if (kind === "activity") return m[4] >= WEEKLY;
+  if (kind === "cooldown") return !m[5];
+  return null;
+}
+
+function renderTabs() {
+  $("boardTabs").innerHTML = STAGES.map((s, i) =>
+    `<button role="tab" id="stage-${i}" aria-selected="${i === state.stage}" data-i="${i}">${s.from} → ${s.to} <span class="mono">(${M[s.from].length})</span></button>`).join("");
+  $("boardTabs").querySelectorAll("button").forEach(b => b.onclick = () => { state.stage = +b.dataset.i; render(); });
+}
+
+function render() {
+  renderTabs();
+  const si = state.stage, st = STAGES[si], members = M[st.from];
+  $("reqToggles").innerHTML = st.reqs.map(([t, k], ri) => {
+    const on = !state.off[si + ":" + ri];
+    return `<label class="req-toggle${on ? "" : " off"}" for="rq-${si}-${ri}"><input type="checkbox" id="rq-${si}-${ri}" data-ri="${ri}" ${on ? "checked" : ""}> ${esc(t)} <span class="kind">${KIND_LABEL[k]}</span></label>`;
+  }).join("");
+  $("reqToggles").querySelectorAll("input").forEach(inp => inp.onchange = () => {
+    const key = si + ":" + inp.dataset.ri;
+    if (inp.checked) delete state.off[key]; else state.off[key] = true;
+    render();
+  });
+
+  let html = `<thead><tr><th>Member</th>` + st.reqs.map(([t], ri) =>
+    `<th class="${state.off[si + ":" + ri] ? "dim" : ""}" title="${esc(t)}">${esc(t.replace("Maintain Activity Requirement", "Activity").replace("Cooldown expired", "Cooldown"))}</th>`).join("") + `<th>Ready?</th></tr></thead><tbody>`;
+  html += members.map(m => {
+    let allOk = true;
+    const cells = st.reqs.map(([t, k], ri) => {
+      const disabled = !!state.off[si + ":" + ri];
+      const a = autoValue(k, m);
+      let ok, inner;
+      if (a !== null) {
+        ok = a;
+        const txt = k === "activity" ? `${m[4]} / ${WEEKLY} h` : (m[5] ? "running" : "clear");
+        inner = `<span class="auto ${a ? "yes" : "no"}"><i></i>${txt}</span>`;
+      } else {
+        const key = si + ":" + ri + ":" + m[1];
+        ok = !!state.done[key];
+        inner = `<button class="cell-btn" aria-pressed="${ok}" data-key="${esc(key)}" aria-label="${esc(t)} for ${esc(m[0])}">✓</button>`;
+      }
+      if (!disabled && !ok) allOk = false;
+      return `<td class="${disabled ? "dim" : ""}">${inner}</td>`;
+    }).join("");
+    const strikes = m[3] ? ` · ${m[3]} strike${m[3] === 1 ? "" : "s"}` : "";
+    return `<tr><td><div class="who"><span>${esc(m[0])}</span><small>${esc(m[2])}${strikes}</small></div></td>${cells}<td><span class="ready ${allOk ? "y" : "n"}">${allOk ? "Ready" : "Pending"}</span></td></tr>`;
+  }).join("");
+  $("boardTable").innerHTML = html + "</tbody>";
+  $("boardTable").querySelectorAll(".cell-btn").forEach(b => b.onclick = () => {
+    const k = b.dataset.key;
+    if (state.done[k]) delete state.done[k]; else state.done[k] = true;
+    render();
+  });
+}
+render();
+</script>
+
+<!--claude-mermaid-runtime-begin:3477-->
+<style>.mermaid-diagram{margin-block:4px}.mermaid-diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}</style>
+<script src="/_runtime/mermaid-11.16.1.min.js"></script>
+<script>(function(){
+var CFG={"palettes":{"light":{"surface":"#f4efe4","text":"#42392e","line":"#8a7f6d","border":"#7a6c52","bg":"#fffdf8"},"dark":{"surface":"#262b34","text":"#f2f3f5","line":"#a8adb8","border":"#9aa4b8","bg":"#1f232b"}}};
+if(typeof mermaid==='undefined')return;
+var pres=Array.prototype.slice.call(document.querySelectorAll('pre.mermaid')).filter(function(p){if(p.hasAttribute('data-claude-mermaid-claimed'))return false;p.setAttribute('data-claude-mermaid-claimed','1');return true;});
+if(!pres.length)return;
+var mq=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)'):null;
+var root=document.documentElement;
+var items=pres.map(function(pre){
+var mount=document.createElement('div');mount.className='mermaid-diagram';
+return {pre:pre,mount:mount,src:pre.textContent||''};
+});
+var seq=0;
+var renderGen=0;
+var lastKey='';
+function pageBg(fallback){
+var els=[document.body,document.documentElement];
+for(var i=0;i<els.length;i++){
+var c=els[i]&&getComputedStyle(els[i]).backgroundColor;
+if(c&&c!=='transparent'&&c!=='rgba(0, 0, 0, 0)')return c;
+}
+return fallback;
+}
+function render(){
+var theme=root.getAttribute('data-theme');
+var dark=theme==='dark'||(!!(mq&&mq.matches)&&theme!=='light');
+var pal=dark?CFG.palettes.dark:CFG.palettes.light;
+var bg=pageBg(pal.bg);
+var key=(dark?'d':'l')+'|'+bg;
+if(key===lastKey)return;
+lastKey=key;
+var gen=++renderGen;
+var font=getComputedStyle(document.body).fontFamily||'sans-serif';
+var nat={useMaxWidth:false};
+mermaid.initialize({
+startOnLoad:false,securityLevel:'strict',theme:'base',
+flowchart:nat,sequence:nat,er:nat,state:nat,class:nat,pie:nat,
+gantt:nat,journey:nat,timeline:nat,gitGraph:nat,mindmap:nat,xyChart:nat,
+quadrantChart:nat,sankey:nat,c4:nat,requirement:nat,block:nat,
+packet:nat,kanban:nat,architecture:nat,radar:nat,
+themeVariables:{background:bg,mainBkg:pal.surface,primaryColor:pal.surface,
+primaryTextColor:pal.text,lineColor:pal.line,primaryBorderColor:pal.border,
+nodeBorder:pal.border,clusterBorder:pal.border,edgeLabelBackground:bg,
+clusterBkg:'rgba(127,127,127,0.07)',titleColor:pal.text,
+darkMode:dark,rowOdd:bg,rowEven:'rgba(127,127,127,0.07)',
+attributeBackgroundColorOdd:bg,attributeBackgroundColorEven:'rgba(127,127,127,0.07)',
+fontSize:'16px',fontFamily:font},
+themeCSS:'.node rect, .node circle, .node polygon, .node path, .cluster rect { stroke-width: 2px; }'
+});
+items.forEach(function(it){
+var id='claude-mermaid-'+seq++;
+mermaid.render(id,it.src).then(function(r){
+if(gen!==renderGen)return;
+var prev=it.pre.previousElementSibling;
+if(prev&&prev.className==='mermaid-diagram'&&prev!==it.mount)return;
+it.mount.innerHTML=r.svg;
+if(!it.mount.parentNode)it.pre.parentNode.insertBefore(it.mount,it.pre);
+it.pre.style.display='none';
+},function(){
+var scratch=document.getElementById(id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+scratch=document.getElementById('d'+id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+if(gen!==renderGen)return;
+if(it.mount.parentNode)it.mount.parentNode.removeChild(it.mount);
+it.pre.style.display='';
+});
+});
+}
+render();
+if(mq&&mq.addEventListener)mq.addEventListener('change',render);
+if(typeof MutationObserver!=='undefined')new MutationObserver(render).observe(root,{attributes:true,attributeFilter:['data-theme']});
+})();</script>
+<!--claude-mermaid-runtime-end-->
+
+</body></html>
