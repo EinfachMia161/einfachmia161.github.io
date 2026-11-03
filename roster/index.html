@@ -8,7 +8,7 @@
 <title>Nu-7 Roster (Test)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <div class="testbar">TEST SITE · reading is public · only signed-in officers (LT and above) can make changes</div>
@@ -18,6 +18,7 @@
     <button data-view="roster" aria-current="page">Roster</button>
     <button data-view="members">Members area</button>
     <button data-view="board">Promotion board</button>
+    <button data-view="strikes">Strikes</button>
     <button data-view="blacklist">Blacklist</button>
     <button data-view="co" data-officer hidden>CO area</button>
     <button data-view="recruit" data-officer hidden>Add member</button>
@@ -153,6 +154,22 @@
     </form>
   </section>
 
+  <!-- STRIKES -->
+  <section class="view" id="view-strikes" hidden>
+    <div class="row"><h2>Strikes</h2><span class="spacer"></span><span class="note" id="strikeStats"></span></div>
+    <div class="row">
+      <input type="search" id="strikeQ" placeholder="Search name, Steam ID or reason" aria-label="Search strikes" style="flex:1 1 240px">
+      <select id="strikeFilter" aria-label="Filter strikes">
+        <option value="active">Active only</option><option value="appeals">Appealed or under appeal</option><option value="all">All strikes</option>
+      </select>
+    </div>
+    <div class="frame"><table>
+      <thead><tr><th>Member</th><th>Date</th><th>Weight</th><th>Reason</th><th class="hide-sm">Issued by</th><th class="hide-sm">Expires</th><th>State</th><th>Appeal</th><th>Appealable to</th></tr></thead>
+      <tbody id="strikeBody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+    <p class="note">Active strikes count towards a member's total until they expire or an appeal is granted. Click a member on the roster to open their file.</p>
+  </section>
+
   <!-- BLACKLIST -->
   <section class="view" id="view-blacklist" hidden>
     <div class="row"><h2>Blacklist</h2><span class="spacer"></span>
@@ -166,9 +183,9 @@
   <!-- CHANGE LOG -->
   <section class="view" id="view-changes" hidden>
     <div class="row"><h2>Change log</h2><span class="spacer"></span><button class="btn" id="changesReload">Reload</button></div>
-    <p class="note">Every change is recorded by the database with the officer who made it (latest 100).</p>
+    <p class="note">Every change is recorded by the database with the officer who made it (latest 100). Undo reverts a whole action in one click, as long as nothing was changed on top of it since; the undo is logged too and can be undone again.</p>
     <div class="frame"><table>
-      <thead><tr><th>When</th><th>By</th><th>Table</th><th>Action</th><th>Change</th></tr></thead>
+      <thead><tr><th>When</th><th>By</th><th>Table</th><th>Action</th><th>Change</th><th></th></tr></thead>
       <tbody id="changesBody"></tbody>
     </table></div>
   </section>
@@ -180,6 +197,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"
         integrity="sha384-GFr3yTh5lJznCbZfpTtXnwboFsxqtTQoeTZCRHhE0579KrRmlCzen5AA8ohaB5ug" crossorigin="anonymous"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

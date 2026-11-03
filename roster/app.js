@@ -57,7 +57,7 @@ function setConn(ok, text) {
 }
 
 /* ---------- navigation ---------- */
-const VIEWS = ["roster", "members", "board", "blacklist", "co", "recruit", "changes"];
+const VIEWS = ["roster", "members", "board", "strikes", "blacklist", "co", "recruit", "changes"];
 const OFFICER_VIEWS = ["co", "recruit", "changes"];
 function show(view) {
   if (!VIEWS.includes(view) || (OFFICER_VIEWS.includes(view) && !isOfficer())) view = "roster";
@@ -66,6 +66,7 @@ function show(view) {
   document.querySelectorAll("nav button").forEach(b => { if (b.dataset.view === view) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
   if (location.hash !== "#" + view) history.replaceState(null, "", "#" + view);
   if (view === "board") loadBoard();
+  if (view === "strikes") loadStrikes();
   if (view === "blacklist") loadBlacklist();
   if (view === "changes") loadChanges();
   if (view === "co") loadCo();
@@ -344,14 +345,15 @@ async function openPerson(membershipId) {
     <div class="card">
       <h3>Strikes</h3>
       ${off ? `<form class="form" id="strikeForm">
-        <label class="f">Weight<select id="s-weight"><option value="0.5">0.5</option><option value="1" selected>1</option></select></label>
+        <label class="f">Weight<input type="number" id="s-weight" min="0.5" max="10" step="0.5" value="1" required></label>
         <label class="f">Expires<input type="date" id="s-exp" value="${isoDay(14)}"></label>
         <label class="f wide">Reason<input type="text" id="s-reason" required></label>
+        <label class="f wide">Appealable to<input type="text" id="s-appeal-to" maxlength="120" placeholder="e.g. Regimental Command"></label>
         <div><button class="btn primary" type="submit">Add strike</button></div>
       </form>` : ""}
       <div class="list">${st.length ? st.map(s => {
         const active = s.appeal_status !== "granted" && (!s.expires_on || s.expires_on > today);
-        return `<div><span class="d">${fmtDate(s.issued_on)}</span><span class="grow">${num(s.weight)} · ${esc(s.reason || "")} <small class="mono">${s.appeal_status === "granted" ? "appealed" : active ? "active until " + fmtDate(s.expires_on) : "expired"}</small></span>
+        return `<div><span class="d">${fmtDate(s.issued_on)}</span><span class="grow">${num(s.weight)} · ${esc(s.reason || "")}${s.appealable_to ? " · appeal to " + esc(s.appealable_to) : ""} <small class="mono">${s.appeal_status === "granted" ? "appealed" : active ? "active until " + fmtDate(s.expires_on) : "expired"}</small></span>
           ${off ? `${active ? `<button class="btn small" data-appeal="${s.id}">Mark appealed</button>` : ""}<button class="btn small danger" data-del-strike="${s.id}">Delete</button>` : ""}</div>`;
       }).join("") : '<p class="note">No strikes.</p>'}</div>
     </div>
@@ -424,8 +426,11 @@ async function openPerson(membershipId) {
     e.preventDefault();
     const reason = $("s-reason").value.trim();
     if (!reason) return toast("Enter a reason for the strike.", true);
-    check(await db.from("strike").insert({ person_id: pid, weight: +$("s-weight").value, reason, issued_on: today,
-      expires_on: $("s-exp").value || null, officer_raw: officerName }), "Adding the strike");
+    const weight = +$("s-weight").value;
+    if (!(weight >= 0.5 && weight <= 10 && weight * 2 === Math.trunc(weight * 2))) return toast("Strikes go in steps of 0.5, from 0.5 to 10.", true);
+    check(await db.from("strike").insert({ person_id: pid, weight, reason, issued_on: today,
+      expires_on: $("s-exp").value || null, officer_raw: officerName,
+      appealable_to: $("s-appeal-to").value.trim() || null }), "Adding the strike");
     await after("Strike added");
   };
   $("leaveForm").onsubmit = async e => {
@@ -909,10 +914,58 @@ async function loadChanges() {
     return Object.entries(d).filter(([k, v]) => v !== null && !k.endsWith("_id") && k !== "id").slice(0, 5).map(([k, v]) => `${esc(k)}: ${esc(JSON.stringify(v))}`).join(" · ");
   };
   const by = r => r.actor ? esc(names.get(r.actor) || "removed login") : "members area / admin";
-  $("changesBody").innerHTML = list.length ? list.map(r => `<tr><td class="mono">${new Date(r.at).toLocaleString("en-GB")}</td><td>${by(r)}</td><td>${esc(r.table_name)}</td><td>${esc(r.action.toLowerCase())}</td><td style="font-size:12px">${describe(r)}</td></tr>`).join("")
-    : `<tr><td colspan="5" class="empty">No changes yet.</td></tr>`;
+  // One action (e.g. adding a member) can log several rows; the button sits on its newest row and undoes all of them.
+  const seen = new Set(), size = new Map();
+  list.forEach(r => { if (r.tx !== null) size.set(r.tx, (size.get(r.tx) || 0) + 1); });
+  const fixed = t => t === "officer_account" || t === "co_document";
+  const undoCell = r => {
+    if (r.undone_at) return `<span class="pill p-no" title="${esc(fmtTime(r.undone_at))}">undone</span>`;
+    if (fixed(r.table_name)) return "";
+    if (r.tx !== null && seen.has(r.tx)) return `<span class="note" title="Undone together with the row above">same action</span>`;
+    if (r.tx !== null) seen.add(r.tx);
+    const n = r.tx !== null ? size.get(r.tx) : 1;
+    return `<button class="btn small" data-undo="${r.id}" title="${n > 1 ? `Undoes all ${n} changes of this action` : "Undo this change"}">Undo${n > 1 ? " (" + n + ")" : ""}</button>`;
+  };
+  $("changesBody").innerHTML = list.length ? list.map(r => `<tr${r.undone_at ? ' class="undone"' : ""}><td class="mono">${new Date(r.at).toLocaleString("en-GB")}</td><td>${by(r)}</td><td>${esc(r.table_name)}</td><td>${esc(r.action.toLowerCase())}</td><td style="font-size:12px">${describe(r)}</td><td>${undoCell(r)}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">No changes yet.</td></tr>`;
+  $("changesBody").querySelectorAll("[data-undo]").forEach(btn => btn.onclick = async () => {
+    btn.disabled = true;
+    const r = check(await db.rpc("undo_change", { p_id: +btn.dataset.undo }), "Undo");
+    toast(r.message, !r.ok);
+    if (r.ok) { await loadRoster(); loadChanges(); } else btn.disabled = false;
+  });
 }
 $("changesReload").onclick = loadChanges;
+
+/* ---------- strikes ---------- */
+const APPEAL_LABEL = { none: "–", pending: "Pending", granted: "Granted", denied: "Denied" };
+async function loadStrikes() {
+  const list = check(await db.from("strike")
+    .select("id, person_id, weight, reason, issued_on, expires_on, officer_raw, appeal_status, appealable_to, appeal_reason, person!strike_person_id_fkey(display_name, steam_id)")
+    .order("issued_on", { ascending: false }).order("id", { ascending: false }), "Loading strikes");
+  const today = isoDay(), q = $("strikeQ").value.trim().toLowerCase(), filter = $("strikeFilter").value;
+  const onRoster = new Map(state.roster.map(m => [m.person_id, m.membership_id]));
+  const rows = list.map(s => {
+    const appealed = s.appeal_status === "granted", expired = s.expires_on && s.expires_on <= today;
+    return { ...s, active: !appealed && !expired, stateTxt: appealed ? "Appealed" : expired ? "Expired" : "Active" };
+  }).filter(s => (filter === "all" || (filter === "active" ? s.active : s.stateTxt === "Appealed" || s.appeal_status !== "none"))
+    && (!q || `${s.person?.display_name} ${s.person?.steam_id} ${s.reason}`.toLowerCase().includes(q)));
+  const activePoints = list.filter(s => s.appeal_status !== "granted" && !(s.expires_on && s.expires_on <= today)).reduce((a, s) => a + +s.weight, 0);
+  $("strikeStats").textContent = `${rows.length} shown · ${num(activePoints)} active strike points across the regiment`;
+  $("strikeBody").innerHTML = rows.length ? rows.map(s => {
+    const mid = onRoster.get(s.person_id);
+    return `<tr${mid ? ` class="member" data-mid="${mid}"` : ""}>
+      <td><div class="who"><span>${esc(s.person?.display_name)}</span><small>${mid ? esc(s.person?.steam_id || "") : "not on the roster"}</small></div></td>
+      <td class="mono">${fmtDate(s.issued_on)}</td><td class="n">${num(s.weight)}</td><td>${esc(s.reason || "–")}</td>
+      <td class="hide-sm">${esc(s.officer_raw || "–")}</td><td class="mono hide-sm">${s.expires_on ? fmtDate(s.expires_on) : "no expiry"}</td>
+      <td><span class="pill ${s.active ? "p-bad" : "p-no"}">${s.stateTxt}</span></td>
+      <td><span title="${esc(s.appeal_reason || "")}">${APPEAL_LABEL[s.appeal_status] || esc(s.appeal_status)}</span></td>
+      <td>${esc(s.appealable_to || "–")}</td></tr>`;
+  }).join("") : `<tr><td colspan="9" class="empty">No strikes match.</td></tr>`;
+  $("strikeBody").querySelectorAll("tr[data-mid]").forEach(tr => tr.onclick = () => openPerson(tr.dataset.mid));
+}
+$("strikeQ").oninput = loadStrikes;
+$("strikeFilter").onchange = loadStrikes;
 
 /* ---------- start ---------- */
 (async () => {

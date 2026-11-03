@@ -11,6 +11,7 @@ PostgreSQL schema and tools behind the [roster test site](https://einfachmia161.
 | See own file, request LOA/ROA | – | yes | yes | yes |
 | Log trainings and tryouts as host (CPL and above) | – | yes | yes | yes |
 | CO area, Discord names, change log, officer notes | – | – | yes | yes |
+| Undo actions from the change log | – | – | yes | yes |
 | Edit anything, decide leave requests | – | – | yes | yes |
 | Regimental Command-only notes, links and documents | – | – | – | yes |
 | Remove an officer login | – | – | – | yes |
@@ -111,10 +112,11 @@ psql "<connection string of the new project>" -f nu7.sql
 | `security.sql` | Officer logins, the hashed registration code, rate limits, the hours form and officer actions |
 | `features.sql` | CO area, members area (my file, leave requests, trainings, tryouts), alerts, notifications, snapshots, schedules |
 | `policies.sql` | Access rules: starts from no rights and grants only what the site needs; private document storage |
+| `undo.sql` | Undo from the change log (one click reverts a whole action, never over a later edit) and strikes in steps of 0.5. Re-runnable on its own |
 | `import_nu7.py` | Reads the Google Sheet export (File → Download → Web page, `.zip`) and writes `out/data.sql` plus `out/import-report.md` |
 | `deploy.py` | Loads all SQL files in order. `--reset` drops all Nu-7 tables first |
 | `verify_data.py` | Compares the calculated roster with the values in the sheet's Roster tab |
-| `test_db.py` | 49 tests run as visitor, login, officer and Regimental Command, including attack cases; each test is rolled back |
+| `test_db.py` | 55 tests run as visitor, login, officer and Regimental Command, including attack cases; each test is rolled back |
 
 `out/` is not in this repository: it contains the full personnel data.
 
@@ -136,6 +138,6 @@ python test_db.py
 - **Hours**: duty logged in the last 7 days plus today; hours rejected by an officer do not count.
 - **Status**: LOA/ROA when a leave period covers today; otherwise by hours. Enlisted are Active from 5 h, NCOs and officers from 6 h, Regimental Command always Active. Very-Active from 25 h, Extremely-Active from 30 h.
 - **Cooldown**: 4 days after the last promotion, rank bookkeeping or (re)recruitment.
-- **Strikes**: summed until they expire or an appeal is granted.
+- **Strikes**: steps of 0.5 (0.5 to 10), summed until they expire or an appeal is granted.
 - **Promotion board**: activity and cooldown are calculated only; hosted trainings (14 days), tryouts and basic training come from the logs; everything else is ticked by officers.
 - **Limits**: hours max 12 per entry / 16 per day, dates within the last 6 days; leave max 60 days, one open request at a time; trainings 1–40 attendees.

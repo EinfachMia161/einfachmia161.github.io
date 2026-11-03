@@ -71,6 +71,7 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowra
 tr.group td { background: var(--sunk); font: 700 15px var(--f-display); text-transform: uppercase; letter-spacing: .03em; }
 tr.rankrow td { font: 500 11px var(--f-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; padding-top: 12px; }
 tr.member { cursor: pointer; }
+tr.undone td { opacity: .55; }
 tr.member:hover td { background: var(--accent-soft); }
 .who { display: grid; gap: 1px; }
 .who small { color: var(--muted); font: 12px var(--f-mono); }

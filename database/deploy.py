@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Load schema.sql, out/data.sql, security.sql, features.sql and policies.sql into the Supabase database.
+"""Load schema.sql, out/data.sql, security.sql, features.sql, policies.sql and undo.sql into the Supabase database.
 
 Usage:  set PGPASSWORD, then  python deploy.py [--reset]
 --reset drops every Nu-7 table and view first (all data and officer logins are lost;
@@ -27,7 +27,7 @@ drop function if exists audit_change(), app_today(), change_rank(uuid,text,text,
   my_officer(), claim_officer(text,text), member_discord(), submit_duty(text,text,date,numeric,text),
   my_file(text,text), request_leave(text,text,text,date,date,text), decide_leave_request(bigint,boolean,text),
   log_training(text,text,int,date,uuid[],text,text), log_tryout(text,text,text,text,text,text,int,text),
-  co_alerts() cascade;
+  co_alerts(), undo_change(bigint) cascade;
 """
 
 
@@ -37,7 +37,7 @@ def main():
             con.execute(RESET)
             print("reset done")
         for f in (HERE / "schema.sql", HERE / "out" / "data.sql", HERE / "security.sql", HERE / "features.sql",
-                  HERE / "policies.sql"):
+                  HERE / "policies.sql", HERE / "undo.sql"):
             con.execute(f.read_text(encoding="utf-8"))
             print("loaded", f.name)
         con.execute("notify pgrst, 'reload schema'")

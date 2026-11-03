@@ -644,5 +644,117 @@ def _(con):
     assert one(con, "select count(*) from private.snapshot_rows('membership', current_date)")[0] == n
 
 
+# ================================================================ undo and half strikes
+
+def separate(con, uid):
+    """Tests run in one transaction; give the rows logged so far their own action, as separate clicks would."""
+    as_admin(con)
+    con.execute("update audit_log set tx = -id where tx = txid_current()")
+    as_user(con, uid)
+
+
+def last_change(con, table, action):
+    return one(con, "select id from audit_log where table_name = %s and action = %s order by id desc limit 1", table, action)[0]
+
+
+@test("strikes come in steps of 0.5, from 0.5 up to 10")
+def _(con):
+    _, pid, *_ = member(con, "Krater J.")
+    officer(con, "Mason R. Holt")
+    for w in (0.5, 1.5, 2, 10):
+        con.execute("insert into strike (person_id, weight, reason, issued_on) values (%s, %s, 'x', '2026-11-03')", (pid, w))
+    for w in (0.3, 1.25, 10.5, -1):
+        expect_error(con, "insert into strike (person_id, weight, reason, issued_on) values (%s, %s, 'x', '2026-11-03')", (pid, w), "check")
+
+
+@test("undo: an edit is reverted, the undo is logged and can itself be undone")
+def _(con):
+    _, pid, *_ = member(con, "Krater J.")
+    uid = officer(con, "Mason R. Holt")
+    sid = one(con, "insert into strike (person_id, weight, reason, issued_on) values (%s, 1.5, 'first', '2026-11-03') returning id", pid)[0]
+    separate(con, uid)
+    con.execute("update strike set reason = 'second', weight = 2 where id = %s", (sid,))
+    separate(con, uid)
+    first = last_change(con, "strike", "UPDATE")
+    r = one(con, "select undo_change(%s)", first)[0]
+    assert r["ok"], r
+    assert one(con, "select reason, weight from strike where id = %s", sid) == ("first", 1.5)
+    assert one(con, "select undo_change(%s)", first)[0]["message"] == "This action was already undone."
+    separate(con, uid)
+    redo = last_change(con, "strike", "UPDATE")
+    assert redo != first
+    assert one(con, "select actor from audit_log where id = %s", redo)[0] == uid
+    assert one(con, "select undo_change(%s)", redo)[0]["ok"]
+    assert one(con, "select reason from strike where id = %s", sid)[0] == "second"
+
+
+@test("undo: new entries are removed, deleted ones come back with the same id")
+def _(con):
+    _, pid, *_ = member(con, "Krater J.")
+    uid = officer(con, "Mason R. Holt")
+    did = one(con, "insert into duty_log (person_id, logged_on, hours, source) values (%s, '2026-11-03', 3, 'officer') returning id", pid)[0]
+    separate(con, uid)
+    assert one(con, "select undo_change(%s)", last_change(con, "duty_log", "INSERT"))[0]["ok"]
+    assert one(con, "select count(*) from duty_log where id = %s", did)[0] == 0
+    old = one(con, "select id, hours from duty_log where person_id = %s order by id limit 1", pid)
+    con.execute("delete from duty_log where id = %s", (old[0],))
+    separate(con, uid)
+    assert one(con, "select undo_change(%s)", last_change(con, "duty_log", "DELETE"))[0]["ok"]
+    assert one(con, "select id, hours from duty_log where id = %s", old[0]) == old
+
+
+@test("undo: a later edit is never overwritten")
+def _(con):
+    _, pid, *_ = member(con, "Krater J.")
+    uid = officer(con, "Mason R. Holt")
+    sid = one(con, "insert into strike (person_id, weight, reason, issued_on) values (%s, 1, 'a', '2026-11-03') returning id", pid)[0]
+    separate(con, uid)
+    ins = last_change(con, "strike", "INSERT")
+    con.execute("update strike set reason = 'b' where id = %s", (sid,))
+    separate(con, uid)
+    r = one(con, "select undo_change(%s)", ins)[0]
+    assert not r["ok"] and "changed again" in r["message"], r
+    assert one(con, "select reason from strike where id = %s", sid)[0] == "b"
+    assert one(con, "select undone_at from audit_log where id = %s", ins)[0] is None
+
+
+@test("undo: one click undoes a whole action (adding a member)")
+def _(con):
+    separate(con, officer(con, "Mason R. Holt"))
+    before = one(con, "select count(*) from v_roster")[0]
+    con.execute("select add_member('STEAM_0:1:999000333', 'Undo Recruit', 'undo')")
+    assert one(con, "select count(*) from v_roster")[0] == before + 1
+    rows = one(con, "select count(*) from audit_log where tx = txid_current()")[0]
+    r = one(con, "select undo_change(%s)", last_change(con, "person_alias", "INSERT"))[0]
+    assert r["ok"] and r["message"] == f"{rows} changes undone.", r
+    assert one(con, "select count(*) from v_roster")[0] == before
+    as_admin(con)
+    assert one(con, "select count(*) from person where steam_id = 'STEAM_0:1:999000333'")[0] == 0
+
+
+@test("undo: only officers; officer logins and Regimental Command entries are protected")
+def _(con):
+    uid = officer(con, "Mason R. Holt")
+    con.execute("update strike set reason = reason where id = (select min(id) from strike)")
+    separate(con, uid)
+    aid = last_change(con, "strike", "UPDATE")
+    as_anon(con)
+    expect_error(con, "select undo_change(%s)", (aid,), "permission denied")
+    as_user(con, uuid.uuid4())
+    expect_error(con, "select undo_change(%s)", (aid,), "only signed-in officers")
+    as_user(con, uid)
+    assert "Officer logins" in one(con, "select undo_change(%s)", last_change(con, "officer_account", "INSERT"))[0]["message"]
+    reg = officer(con, "Jess 'Hare' Cottontail")
+    con.execute("insert into co_note (title, visibility, author_id) values ('RegCom undo', 'regcom', %s)", (reg,))
+    separate(con, reg)
+    nid = last_change(con, "co_note", "INSERT")
+    officer(con, "Mason R. Holt")
+    assert one(con, "select count(*) from audit_log where id = %s", nid)[0] == 0
+    assert one(con, "select undo_change(%s)", nid)[0]["message"] == "Change not found."
+    officer(con, "Jess 'Hare' Cottontail")
+    assert one(con, "select undo_change(%s)", nid)[0]["ok"]
+    assert one(con, "select count(*) from co_note where title = 'RegCom undo'")[0] == 0
+
+
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
 sys.exit(1 if FAIL else 0)
