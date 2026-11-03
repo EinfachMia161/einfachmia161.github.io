@@ -9,16 +9,20 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 });
 
 const KIND_LABEL = { activity: "auto", cooldown: "auto", qualification: "licence", attended_basic: "auto", hosted_training: "auto", hosted_tryout: "auto", manual: "manual" };
-const state = { roster: [], ranks: [], stage: null, board: [], reqs: [], discord: new Map(), me: null, session: null, view: "roster" };
+const state = { roster: [], ranks: [], stage: null, board: [], reqs: [], discord: new Map(), me: null, session: null,
+                view: "roster", mtab: "hours", co: "alerts", trainingTypes: [], attendees: new Set() };
 const isOfficer = () => !!state.me?.is_officer;
+const isRegcom = () => !!state.me?.is_regcom;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtDate = d => d ? new Date(d + (d.length === 10 ? "T00:00:00" : "")).toLocaleDateString("en-GB") : "–";
+const fmtTime = d => d ? new Date(d).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "–";
 const num = v => (v === null || v === undefined) ? "–" : (+v % 1 ? (+v).toFixed(1) : String(+v));
 const slug = s => String(s || "").toLowerCase().replace(/\s+/g, "-");
 const pill = s => `<span class="pill s-${slug(s)}">${esc(s)}</span>`;
 const isoDay = (offset = 0) => { const d = new Date(Date.now() + offset * 864e5); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+const box = (text, ok) => `<div class="${ok ? "okbox" : "errbox"}">${esc(text)}</div>`;
 
 let toastTimer;
 function toast(msg, isErr = false) {
@@ -53,8 +57,8 @@ function setConn(ok, text) {
 }
 
 /* ---------- navigation ---------- */
-const VIEWS = ["roster", "hours", "board", "blacklist", "recruit", "changes", "officers"];
-const OFFICER_VIEWS = ["recruit", "changes", "officers"];
+const VIEWS = ["roster", "members", "board", "blacklist", "co", "recruit", "changes"];
+const OFFICER_VIEWS = ["co", "recruit", "changes"];
 function show(view) {
   if (!VIEWS.includes(view) || (OFFICER_VIEWS.includes(view) && !isOfficer())) view = "roster";
   state.view = view;
@@ -64,7 +68,8 @@ function show(view) {
   if (view === "board") loadBoard();
   if (view === "blacklist") loadBlacklist();
   if (view === "changes") loadChanges();
-  if (view === "officers") loadOfficers();
+  if (view === "co") loadCo();
+  if (view === "members") showMemberTab(state.mtab);
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => show(b.dataset.view));
 
@@ -83,9 +88,10 @@ async function refreshMe() {
   }
   document.querySelectorAll("[data-officer]").forEach(el => { el.hidden = !isOfficer(); });
   document.querySelectorAll("[data-officer-col]").forEach(el => { el.hidden = !isOfficer(); });
+  $("m-officer-hint").hidden = !isOfficer();
   if (state.session) {
     const who = state.me ? `${esc(state.me.display_name)} <span class="mono">${esc(state.me.rank || "no rank")}</span>${isOfficer() ? "" : " · no edit rights"}`
-                         : `${esc(state.session.user.email)} · not linked`;
+                         : `${esc(state.session.user.email || "Discord login")} · not linked`;
     $("userBox").innerHTML = who;
     $("authBtn").textContent = "Account";
   } else {
@@ -98,21 +104,24 @@ $("authBtn").onclick = () => openAuth(state.session ? (state.me ? "account" : "l
 
 function openAuth(mode) {
   $("panel").hidden = false; $("scrim").hidden = false;
+  const here = location.origin + location.pathname;
   const tabs = state.session ? "" : `<div class="authtabs" role="tablist">
       <button role="tab" data-mode="signin" aria-selected="${mode === "signin"}">Sign in</button>
       <button role="tab" data-mode="register" aria-selected="${mode === "register"}">Create login</button>
       <button role="tab" data-mode="reset" aria-selected="${mode === "reset"}">Forgot password</button></div>`;
+  const discordBtn = `<div class="wide row"><button class="btn discord-btn" type="button" id="discordLogin">Sign in with Discord</button>
+      <span class="note">Works once Discord login is switched on in Supabase.</span></div>`;
   const forms = {
     signin: `<form class="card form" id="authForm">
         <label class="f wide">Email<input type="email" id="a-email" autocomplete="username" required></label>
         <label class="f wide">Password<input type="password" id="a-pass" autocomplete="current-password" required></label>
-        <div class="wide"><button class="btn primary" type="submit">Sign in</button></div></form>`,
+        <div class="wide"><button class="btn primary" type="submit">Sign in</button></div>${discordBtn}</form>`,
     register: `<form class="card form" id="authForm">
-        <p class="note wide">Step 1 of 2: create a login. Step 2: link it to your roster entry with your Steam ID and the CO registration code from Regimental Command. Only LT and above can be linked.</p>
+        <p class="note wide">Step 1 of 2: create a login (or use Discord). Step 2: link it to your roster entry with your Steam ID and the CO registration code from Regimental Command. Only LT and above can be linked.</p>
         <label class="f wide">Email<input type="email" id="a-email" autocomplete="username" required></label>
         <label class="f wide">Password (at least 12 characters)<input type="password" id="a-pass" autocomplete="new-password" minlength="12" required></label>
         <label class="f wide">Repeat password<input type="password" id="a-pass2" autocomplete="new-password" minlength="12" required></label>
-        <div class="wide"><button class="btn primary" type="submit">Create login</button></div></form>`,
+        <div class="wide"><button class="btn primary" type="submit">Create login</button></div>${discordBtn}</form>`,
     reset: `<form class="card form" id="authForm">
         <label class="f wide">Email<input type="email" id="a-email" autocomplete="username" required></label>
         <div class="wide"><button class="btn primary" type="submit">Send reset link</button></div></form>`,
@@ -124,7 +133,7 @@ function openAuth(mode) {
     newpass: `<form class="card form" id="authForm">
         <label class="f wide">New password (at least 12 characters)<input type="password" id="a-pass" autocomplete="new-password" minlength="12" required></label>
         <div class="wide"><button class="btn primary" type="submit">Save new password</button></div></form>`,
-    account: `<div class="card"><p>Signed in as <b>${esc(state.me?.display_name || "")}</b> (${esc(state.me?.rank || "no rank")}) with ${esc(state.session?.user.email || "")}.</p>
+    account: `<div class="card"><p>Signed in as <b>${esc(state.me?.display_name || "")}</b> (${esc(state.me?.rank || "no rank")}) with ${esc(state.session?.user.email || "Discord")}.</p>
         ${isOfficer() ? "" : '<p class="warnbox">This roster entry is not LT or above any more, so this login has no edit rights.</p>'}</div>`
   };
   $("panel").innerHTML = `
@@ -137,7 +146,11 @@ function openAuth(mode) {
   $("closePanel").onclick = closePanel;
   $("panel").querySelectorAll("[data-mode]").forEach(b => b.onclick = () => openAuth(b.dataset.mode));
   if ($("signOut")) $("signOut").onclick = async () => { await db.auth.signOut(); closePanel(); await refreshMe(); renderRoster(); toast("Signed out"); };
-  const msg = (text, ok) => { $("a-msg").innerHTML = `<div class="${ok ? "okbox" : "errbox"}">${esc(text)}</div>`; };
+  if ($("discordLogin")) $("discordLogin").onclick = async () => {
+    const { error } = await db.auth.signInWithOAuth({ provider: "discord", options: { redirectTo: here, scopes: "identify email" } });
+    if (error) msg(error.message);
+  };
+  const msg = (text, ok) => { $("a-msg").innerHTML = box(text, ok); };
   const form = $("authForm");
   if (!form) return;
   form.querySelector("input")?.focus();
@@ -147,7 +160,6 @@ function openAuth(mode) {
     btn.disabled = true;
     try {
       const email = $("a-email")?.value.trim(), pass = $("a-pass")?.value;
-      const here = location.origin + location.pathname;
       if (mode === "signin") {
         const { error } = await db.auth.signInWithPassword({ email, password: pass });
         if (error) return msg(error.message === "Invalid login credentials" ? "Email or password is wrong." : error.message);
@@ -186,8 +198,14 @@ db.auth.onAuthStateChange((event) => {
 
 /* ---------- roster ---------- */
 async function loadRanks() {
-  state.ranks = check(await db.from("rank").select("id, code, name, category_id, sort_order, max_slots, weekly_hours_required, cooldown_days").order("sort_order"), "Loading ranks");
+  const [ranks, types] = await Promise.all([
+    db.from("rank").select("id, code, name, category_id, sort_order, max_slots, weekly_hours_required, cooldown_days").order("sort_order"),
+    db.from("training_type").select("id, name").order("name")
+  ]);
+  state.ranks = check(ranks, "Loading ranks");
+  state.trainingTypes = check(types, "Loading training types");
   $("r-rank").innerHTML = state.ranks.map(r => `<option value="${r.code}" ${r.code === "PVT" ? "selected" : ""}>${esc(r.name)} (${r.code})</option>`).join("");
+  $("t-type").innerHTML = state.trainingTypes.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
 }
 async function loadRoster() {
   const [roster, overview] = await Promise.all([
@@ -202,6 +220,7 @@ async function loadRoster() {
     [o.tryouts_7d, "tryouts, 7 days"], ["$" + Number(o.fund_balance).toLocaleString("en-GB"), "fund balance"]
   ].map(([b, s]) => `<div class="stat"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join("");
   renderRoster();
+  renderPicker();
   setConn(true, "Connected");
 }
 function renderRoster() {
@@ -245,7 +264,7 @@ async function openPerson(membershipId) {
   $("panel").innerHTML = `<p class="note">Loading ${esc(m.display_name)}…</p>`;
   $("panel").hidden = false; $("scrim").hidden = false;
   const pid = m.person_id;
-  const [aliases, ranks, strikes, leaves, duty, medals, trainings, member] = await Promise.all([
+  const [aliases, ranks, strikes, leaves, duty, medals, trainings, member, notes] = await Promise.all([
     db.from("person_alias").select("name, first_seen").eq("person_id", pid).order("first_seen", { ascending: false, nullsFirst: false }),
     db.from("rank_change").select("id, kind, effective_on, officer_raw, comment, from:from_rank_id(code), to:to_rank_id(code)").eq("person_id", pid).order("effective_on", { ascending: false }).order("id", { ascending: false }),
     db.from("strike").select("*").eq("person_id", pid).order("issued_on", { ascending: false }),
@@ -253,11 +272,12 @@ async function openPerson(membershipId) {
     db.from("duty_log").select("id, logged_on, hours, comment, source, rejected").eq("person_id", pid).order("logged_on", { ascending: false }).order("id", { ascending: false }).limit(15),
     db.from("medal_award").select("awarded_on, issuer_raw, medal_type(name)").eq("person_id", pid).order("awarded_on", { ascending: false }),
     db.from("training_attendee").select("training(held_on, training_type(name))").eq("person_id", pid),
-    db.from("membership").select("id, status_override, notes, recruited_at").eq("id", membershipId).single()
+    db.from("membership").select("id, status_override, recruited_at").eq("id", membershipId).single(),
+    off ? db.from("member_note").select("id, body, author_name, created_at").eq("person_id", pid).order("created_at", { ascending: false }) : Promise.resolve({ data: [] })
   ]);
   const al = check(aliases, "Loading names"), rc = check(ranks, "Loading rank history"), st = check(strikes, "Loading strikes"),
     lv = check(leaves, "Loading leave"), du = check(duty, "Loading duty logs"), me = check(medals, "Loading medals"),
-    tr = check(trainings, "Loading trainings"), ms = check(member, "Loading membership");
+    tr = check(trainings, "Loading trainings"), ms = check(member, "Loading membership"), mn = check(notes, "Loading notes");
   const today = isoDay();
   const nextRank = state.ranks.find(r => r.sort_order === m.rank_order + 1)?.code;
   const rankOpts = state.ranks.map(r => `<option value="${r.code}" ${r.code === m.rank ? "disabled" : ""} ${r.code === nextRank ? "selected" : ""}>${esc(r.name)}</option>`).join("");
@@ -289,9 +309,16 @@ async function openPerson(membershipId) {
       <label class="f">Status override<select id="e-override">
         ${["", "Touch Grass", "Active", "Inactive"].map(s => `<option value="${s}" ${s === (ms.status_override || "") ? "selected" : ""}>${s || "None (calculated)"}</option>`).join("")}
       </select></label>
-      <label class="f wide">Notes<textarea id="e-notes">${esc(ms.notes || "")}</textarea></label>
       <div class="wide"><button class="btn primary" type="submit">Save details</button></div>
-    </form>` : (ms.notes ? `<div class="card"><h3>Notes</h3><p>${esc(ms.notes)}</p></div>` : "")}
+    </form>
+    <div class="card">
+      <h3>Officer notes <span class="tag">officers only</span></h3>
+      <form class="form" id="noteForm">
+        <label class="f wide">New note<textarea id="n-body" maxlength="5000"></textarea></label>
+        <div><button class="btn primary" type="submit">Add note</button></div>
+      </form>
+      <div class="list">${mn.length ? mn.map(n => `<div><span class="d">${fmtDate(n.created_at.slice(0, 10))}</span><span class="grow" style="white-space:pre-wrap">${esc(n.body)}${n.author_name ? ` <small class="mono">· ${esc(n.author_name)}</small>` : ""}</span><button class="btn small danger" data-del-note="${n.id}">Delete</button></div>`).join("") : '<p class="note">No notes yet.</p>'}</div>
+    </div>` : ""}
 
     <div class="card">
       <h3>Duty</h3>
@@ -367,9 +394,16 @@ async function openPerson(membershipId) {
     const name = $("e-name").value.trim();
     if (!name) return toast("Enter a name.", true);
     check(await db.from("person").update({ display_name: name, discord_username: $("e-discord").value.trim() || null }).eq("id", pid), "Saving details");
-    check(await db.from("membership").update({ status_override: $("e-override").value || null, notes: $("e-notes").value.trim() || null }).eq("id", membershipId), "Saving details");
+    check(await db.from("membership").update({ status_override: $("e-override").value || null }).eq("id", membershipId), "Saving details");
     await refreshMe();
     await after("Details saved");
+  };
+  $("noteForm").onsubmit = async e => {
+    e.preventDefault();
+    const body = $("n-body").value.trim();
+    if (!body) return toast("Write the note first.", true);
+    check(await db.from("member_note").insert({ person_id: pid, body, author_id: state.session.user.id, author_name: officerName }), "Saving the note");
+    await after("Note added");
   };
   $("dutyForm").onsubmit = async e => {
     e.preventDefault();
@@ -410,6 +444,8 @@ async function openPerson(membershipId) {
       p_reason: $("x-reason").value, p_officer: officerName }), "Discharge");
     toast(`${m.display_name} discharged`); closePanel(); await loadRoster();
   };
+  $("panel").querySelectorAll("[data-del-note]").forEach(b => confirmClick(b, async () => {
+    check(await db.from("member_note").delete().eq("id", b.dataset.delNote), "Deleting the note"); await after("Note deleted"); }));
   $("panel").querySelectorAll("[data-del-duty]").forEach(b => confirmClick(b, async () => {
     check(await db.from("duty_log").delete().eq("id", b.dataset.delDuty), "Deleting the duty entry"); await after("Duty entry deleted"); }));
   $("panel").querySelectorAll("[data-reject]").forEach(b => b.onclick = async () => {
@@ -426,26 +462,104 @@ function closePanel() { $("panel").hidden = true; $("scrim").hidden = true; }
 $("scrim").onclick = closePanel;
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("panel").hidden) closePanel(); });
 
-/* ---------- log hours (PVT - CSG) ---------- */
-function resetHoursForm() {
-  $("h-date").value = isoDay(); $("h-date").max = isoDay(); $("h-date").min = isoDay(-6);
+/* ---------- members area (no login) ---------- */
+function showMemberTab(tab) {
+  state.mtab = tab;
+  document.querySelectorAll("#memberTabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.mtab === tab));
+  document.querySelectorAll("[data-mpanel]").forEach(p => { p.hidden = p.dataset.mpanel !== tab; });
+  $("m-result").innerHTML = "";
+}
+document.querySelectorAll("#memberTabs button").forEach(b => b.onclick = () => showMemberTab(b.dataset.mtab));
+function resetMemberDates() {
+  for (const id of ["h-date", "t-date"]) { $(id).value = isoDay(); $(id).max = isoDay(); $(id).min = isoDay(-6); }
+  $("lr-start").value = isoDay(); $("lr-start").min = isoDay(-1); $("lr-start").max = isoDay(90);
+  $("lr-end").value = isoDay(7); $("lr-end").min = isoDay(-1);
+}
+// Returns {steam, discord} or null (with a message shown). Discord may be empty only for officers logging for a host.
+function identity(allowOfficerHost = false) {
+  const steam = $("m-steam").value.trim(), discord = $("m-discord").value.trim();
+  if ($("m-website").value) { $("m-result").innerHTML = box("Done.", true); return null; }  // bot trap
+  if (!steam) { $("m-result").innerHTML = box("Enter the Steam ID at the top."); return null; }
+  if (!discord && !(allowOfficerHost && isOfficer())) { $("m-result").innerHTML = box("Enter the Discord username at the top."); return null; }
+  return { steam, discord: discord || null };
+}
+async function memberCall(btn, fn, args) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = check(await db.rpc(fn, args), "Sending");
+    $("m-result").innerHTML = box(r.message, r.ok);
+    return r;
+  } finally { if (btn) btn.disabled = false; }
 }
 $("hoursForm").onsubmit = async e => {
   e.preventDefault();
-  const out = (text, ok) => { $("h-result").innerHTML = `<div class="${ok ? "okbox" : "errbox"}">${esc(text)}</div>`; };
-  if ($("h-website").value) return out("Logged.", true);  // bot trap: real people never see this field
-  const steam = $("h-steam").value.trim(), discord = $("h-discord").value.trim(), hours = parseFloat($("h-hours").value);
-  if (!steam || !discord) return out("Enter your Steam ID and Discord username.");
-  if (!(hours > 0 && hours <= 12)) return out("Hours must be more than 0 and at most 12.");
-  $("h-submit").disabled = true;
+  const id = identity(); if (!id) return;
+  const hours = parseFloat($("h-hours").value);
+  if (!(hours > 0 && hours <= 12)) { $("m-result").innerHTML = box("Hours must be more than 0 and at most 12."); return; }
+  const r = await memberCall(e.submitter || $("h-submit"), "submit_duty", { p_steam_id: id.steam, p_discord: id.discord,
+    p_date: $("h-date").value, p_hours: hours, p_comment: $("h-comment").value.trim() || null });
+  if (r.ok) { $("m-result").innerHTML = box(`${r.message} · your hours in the last 7 days: ${num(r.week_hours)}`, true); $("h-hours").value = "1"; $("h-comment").value = ""; loadRoster(); }
+};
+$("f-load").onclick = async () => {
+  const id = identity(); if (!id) return;
+  $("f-load").disabled = true;
   try {
-    const r = check(await db.rpc("submit_duty", { p_steam_id: steam, p_discord: discord, p_date: $("h-date").value,
-      p_hours: hours, p_comment: $("h-comment").value.trim() || null }), "Logging hours");
-    if (!r.ok) return out(r.message);
-    out(`${r.message} · your hours in the last 7 days: ${num(r.week_hours)}`, true);
-    $("h-hours").value = "1"; $("h-comment").value = "";
-    loadRoster();
-  } finally { $("h-submit").disabled = false; }
+    const r = check(await db.rpc("my_file", { p_steam_id: id.steam, p_discord: id.discord }), "Loading your file");
+    if (!r.ok) { $("m-result").innerHTML = box(r.message); $("f-out").innerHTML = ""; return; }
+    $("m-result").innerHTML = "";
+    $("f-out").innerHTML = `
+      <div class="kv" style="margin-top:12px">
+        <div><span>Name</span><b>${esc(r.name)}</b></div><div><span>Rank</span><b>${esc(r.rank)}</b></div>
+        <div><span>Status</span>${pill(r.status)}</div>
+        <div><span>Hours, last 7 days</span><b>${num(r.hours)}${+r.required ? " / " + num(r.required) : ""}</b></div>
+        <div><span>Active strikes</span><b>${num(r.strikes)}</b></div><div><span>Cooldown</span><b>${r.on_cooldown ? "Running" : "Clear"}</b></div>
+      </div>
+      <h3 style="margin-top:14px">Next promotion</h3>
+      <div class="list">${r.requirements.length ? r.requirements.map(q => `<div><span class="grow">${esc(q.title)}</span><span class="pill ${q.met ? "p-yes" : "p-no"}">${q.met ? "done" : "open"}</span></div>`).join("") : '<p class="note">No requirements for your rank.</p>'}</div>
+      <h3 style="margin-top:14px">Recent duty</h3>
+      <div class="list">${r.duty.length ? r.duty.map(d => `<div class="${d.rejected ? "rejected" : ""}"><span class="d">${fmtDate(d.logged_on)}</span><span class="grow">${num(d.hours)} h ${d.comment ? "· " + esc(d.comment) : ""}${d.rejected ? '<span class="tag">rejected</span>' : ""}</span></div>`).join("") : '<p class="note">No duty logged.</p>'}</div>
+      ${r.strike_list.length ? `<h3 style="margin-top:14px">Active strikes</h3><div class="list">${r.strike_list.map(s => `<div><span class="d">${fmtDate(s.issued_on)}</span><span class="grow">${num(s.weight)} · ${esc(s.reason || "")} · until ${fmtDate(s.expires_on)}</span></div>`).join("")}</div>` : ""}
+      ${r.requests.length ? `<h3 style="margin-top:14px">Leave requests</h3><div class="list">${r.requests.map(q => `<div><span class="d">${fmtDate(q.starts_on)}</span><span class="grow">${esc(q.type)} until ${fmtDate(q.ends_on)}${q.decision_note ? " · " + esc(q.decision_note) : ""}</span><span class="pill ${q.status === "approved" ? "p-yes" : q.status === "declined" ? "p-bad" : "p-no"}">${esc(q.status)}</span></div>`).join("")}</div>` : ""}`;
+  } finally { $("f-load").disabled = false; }
+};
+$("leaveReqForm").onsubmit = async e => {
+  e.preventDefault();
+  const id = identity(); if (!id) return;
+  const r = await memberCall(e.submitter, "request_leave", { p_steam_id: id.steam, p_discord: id.discord, p_type: $("lr-type").value,
+    p_starts: $("lr-start").value, p_ends: $("lr-end").value, p_reason: $("lr-reason").value.trim() || null });
+  if (r.ok) $("lr-reason").value = "";
+};
+function renderPicker() {
+  const q = $("t-search").value.trim().toLowerCase();
+  $("t-picker").innerHTML = state.roster.filter(m => !q || m.display_name.toLowerCase().includes(q))
+    .map(m => `<label><input type="checkbox" value="${m.person_id}" ${state.attendees.has(m.person_id) ? "checked" : ""}> ${esc(m.display_name)} <small>${esc(m.rank)}</small></label>`).join("");
+  $("t-picker").querySelectorAll("input").forEach(i => i.onchange = () => {
+    if (i.checked) state.attendees.add(i.value); else state.attendees.delete(i.value);
+    $("t-count").textContent = `${state.attendees.size} selected`;
+  });
+  $("t-count").textContent = `${state.attendees.size} selected`;
+}
+$("t-search").oninput = renderPicker;
+$("trainingForm").onsubmit = async e => {
+  e.preventDefault();
+  const id = identity(true); if (!id) return;
+  if (!state.attendees.size) { $("m-result").innerHTML = box("Pick at least one attendee."); return; }
+  const r = await memberCall(e.submitter, "log_training", { p_host_steam_id: id.steam, p_host_discord: id.discord,
+    p_type_id: +$("t-type").value, p_held_on: $("t-date").value, p_attendees: [...state.attendees],
+    p_description: $("t-desc").value.trim() || null, p_comment: $("t-comment").value.trim() || null });
+  if (r.ok) { state.attendees.clear(); $("t-desc").value = ""; $("t-comment").value = ""; $("t-search").value = ""; renderPicker(); loadRoster(); }
+};
+$("tryoutForm").onsubmit = async e => {
+  e.preventDefault();
+  const id = identity(true); if (!id) return;
+  const score = $("y-score").value === "" ? null : parseInt($("y-score").value, 10);
+  const r = await memberCall(e.submitter, "log_tryout", { p_host_steam_id: id.steam, p_host_discord: id.discord,
+    p_recruit_name: $("y-name").value.trim(), p_recruit_steam_id: $("y-steam").value.trim(), p_recruit_discord: $("y-discord").value.trim() || null,
+    p_result: $("y-result").value, p_score: score, p_comment: $("y-comment").value.trim() || null });
+  if (r.ok) {
+    if (r.blacklisted) $("m-result").innerHTML += box("Note: this Steam ID has an active blacklist entry.");
+    ["y-name", "y-steam", "y-discord", "y-score", "y-comment"].forEach(i => { $(i).value = ""; });
+  }
 };
 
 /* ---------- promotion board ---------- */
@@ -511,6 +625,194 @@ function renderBoard() {
   });
 }
 $("boardReload").onclick = () => loadBoard().then(() => toast("Board reloaded"));
+
+/* ---------- CO area ---------- */
+document.querySelectorAll("#coTabs button").forEach(b => b.onclick = () => { state.co = b.dataset.co; loadCo(); });
+const visSelect = () => `<label class="f">Visible to<select id="co-vis"><option value="officers">All officers</option>${isRegcom() ? '<option value="regcom">Regimental Command only</option>' : ""}</select></label>`;
+const visTag = v => v === "regcom" ? '<span class="tag">RegCom only</span>' : "";
+async function loadCo() {
+  if (!isOfficer()) return;
+  document.querySelectorAll("#coTabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.co === state.co));
+  $("coBody").innerHTML = '<p class="note">Loading…</p>';
+  const loaders = { alerts: coAlerts, requests: coRequests, tryouts: coTryouts, notes: coNotes, links: coLinks, docs: coDocs, logins: coLogins };
+  await loaders[state.co]();
+}
+async function coAlerts() {
+  const a = check(await db.rpc("co_alerts"), "Loading alerts");
+  const sec = (title, items, render, okText) => `<div class="card alert-sec ${items.length ? "warn" : "ok"}"><h3>${esc(title)} (${items.length})</h3>
+    ${items.length ? `<div class="list">${items.map(render).join("")}</div>` : `<p class="note">${esc(okText)}</p>`}</div>`;
+  const low = +a.trainings_7d < +a.min_trainings, lowT = +a.tryouts_7d < +a.min_tryouts;
+  $("coBody").innerHTML = `<div class="co-grid">
+    <p class="note">The same report is emailed and posted to Discord every day at 18:00 UTC once email and Discord are set up.</p>
+    <div class="stats">
+      <div class="stat"><b>${esc(a.trainings_7d)}</b><span>trainings, 7 days (goal ${esc(a.min_trainings)})${low ? " · below goal" : ""}</span></div>
+      <div class="stat"><b>${esc(a.tryouts_7d)}</b><span>tryouts, 7 days (goal ${esc(a.min_tryouts)})${lowT ? " · below goal" : ""}</span></div>
+    </div>
+    ${sec("Low hours", a.low_hours, x => `<div><span class="grow">${esc(x.name)} <small class="mono">${esc(x.rank)}</small></span><span class="mono">${num(x.hours)} / ${num(x.required)} h</span></div>`, "Everyone meets their weekly hours.")}
+    ${sec("Ready for promotion", a.ready_for_promotion, x => `<div><span class="grow">${esc(x.name)} <small class="mono">${esc(x.rank)}</small></span></div>`, "Nobody has all requirements met yet.")}
+    ${sec("NCOs without a training in 14 days", a.training_overdue, x => `<div><span class="grow">${esc(x.name)} <small class="mono">${esc(x.rank)}</small></span></div>`, "All NCOs have hosted recently.")}
+    ${sec("Leave requests waiting", a.pending_requests, x => `<div><span class="grow">${esc(x.name)}: ${esc(x.type)} ${fmtDate(x.starts_on)} – ${fmtDate(x.ends_on)}</span></div>`, "No requests waiting.")}
+    ${sec("Leave ending today or tomorrow", a.leave_ending, x => `<div><span class="grow">${esc(x.name)}: ${esc(x.type)} ends ${fmtDate(x.ends_on)}</span></div>`, "No leave ending soon.")}
+  </div>`;
+}
+async function coRequests() {
+  const rows = check(await db.from("leave_request").select("id, type, starts_on, ends_on, reason, status, requested_at, decided_by_name, decision_note, person!leave_request_person_id_fkey(display_name)")
+    .order("requested_at", { ascending: false }).limit(40), "Loading leave requests");
+  const pending = rows.filter(r => r.status === "pending"), done = rows.filter(r => r.status !== "pending");
+  $("coBody").innerHTML = `<div class="co-grid">
+    <div class="card"><h3>Waiting (${pending.length})</h3>
+      ${pending.length ? pending.map(r => `<div class="note-card"><div><b>${esc(r.person?.display_name)}</b> · ${esc(r.type)} ${fmtDate(r.starts_on)} – ${fmtDate(r.ends_on)}</div>
+        ${r.reason ? `<div class="body">${esc(r.reason)}</div>` : ""}
+        <div class="row"><input type="text" placeholder="Note to the member (optional)" data-note="${r.id}" style="flex:1 1 200px">
+          <button class="btn small primary" data-decide="${r.id}" data-ok="1">Approve</button><button class="btn small danger" data-decide="${r.id}" data-ok="0">Decline</button></div></div>`).join("") : '<p class="note">No requests waiting.</p>'}
+    </div>
+    <div class="card"><h3>Decided</h3><div class="list">${done.map(r => `<div><span class="d">${fmtDate(r.starts_on)}</span><span class="grow">${esc(r.person?.display_name)} · ${esc(r.type)} until ${fmtDate(r.ends_on)} · by ${esc(r.decided_by_name || "–")}${r.decision_note ? " · " + esc(r.decision_note) : ""}</span><span class="pill ${r.status === "approved" ? "p-yes" : "p-bad"}">${esc(r.status)}</span></div>`).join("") || '<p class="note">Nothing yet.</p>'}</div></div></div>`;
+  $("coBody").querySelectorAll("[data-decide]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const note = $("coBody").querySelector(`[data-note="${b.dataset.decide}"]`).value;
+    const r = check(await db.rpc("decide_leave_request", { p_id: +b.dataset.decide, p_approve: b.dataset.ok === "1", p_note: note || null }), "Deciding");
+    toast(r.message); await loadRoster(); coRequests();
+  });
+}
+async function coTryouts() {
+  const rows = check(await db.from("tryout").select("id, held_on, result, comment, recruit:person!tryout_recruit_id_fkey(id, display_name, steam_id), host:person!tryout_host_id_fkey(display_name), tryout_quiz(score)")
+    .order("held_on", { ascending: false }).order("id", { ascending: false }).limit(40), "Loading tryouts");
+  const serving = new Set(state.roster.map(m => m.person_id));
+  $("coBody").innerHTML = `<div class="frame"><table><thead><tr><th>Date</th><th>Recruit</th><th>Host</th><th>Result</th><th>Quiz</th><th></th></tr></thead><tbody>
+    ${rows.map(t => `<tr><td class="mono">${fmtDate(t.held_on)}</td>
+      <td><div class="who"><span>${esc(t.recruit?.display_name)}</span><small>${esc(t.recruit?.steam_id || "")}</small></div></td>
+      <td>${esc(t.host?.display_name || "–")}</td><td><span class="pill ${t.result === "passed" ? "p-yes" : "p-bad"}">${esc(t.result)}</span></td>
+      <td class="n">${(Array.isArray(t.tryout_quiz) ? t.tryout_quiz[0] : t.tryout_quiz)?.score ?? "–"}</td>
+      <td>${t.result === "passed" && t.recruit && !serving.has(t.recruit.id) && t.recruit.steam_id ? `<button class="btn small primary" data-add="${t.id}">Add to roster</button>` : (serving.has(t.recruit?.id) ? '<span class="note">on roster</span>' : "")}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  $("coBody").querySelectorAll("[data-add]").forEach(b => b.onclick = async () => {
+    const t = rows.find(x => x.id === +b.dataset.add);
+    b.disabled = true;
+    check(await db.rpc("add_member", { p_steam_id: t.recruit.steam_id, p_name: t.recruit.display_name, p_discord: null, p_rank: "PVT", p_override: false }), "Adding to the roster");
+    toast(`${t.recruit.display_name} added as PVT`); await refreshMe(); await loadRoster(); coTryouts();
+  });
+}
+async function coNotes() {
+  const rows = check(await db.from("co_note").select("*").order("pinned", { ascending: false }).order("updated_at", { ascending: false }), "Loading notes");
+  $("coBody").innerHTML = `<div class="co-grid">
+    <form class="card form" id="coNoteForm">
+      <label class="f wide">Title<input type="text" id="co-title" maxlength="200" required></label>
+      <label class="f wide">Text<textarea id="co-body" maxlength="20000" style="min-height:110px"></textarea></label>
+      ${visSelect()}
+      <label class="row" style="gap:6px"><input type="checkbox" id="co-pin"> Pin to the top</label>
+      <div class="wide"><button class="btn primary" type="submit">Add note</button></div>
+    </form>
+    ${rows.map(n => `<div class="note-card ${n.pinned ? "pinned" : ""}">
+      <div class="row"><b style="flex:1">${esc(n.title)}</b>${n.pinned ? '<span class="tag">pinned</span>' : ""}${visTag(n.visibility)}</div>
+      ${n.body ? `<div class="body">${esc(n.body)}</div>` : ""}
+      <div class="meta"><span>${esc(n.author_name || "–")} · ${fmtTime(n.updated_at)}</span><span class="spacer"></span>
+        <button class="btn small" data-pin="${n.id}" data-val="${!n.pinned}">${n.pinned ? "Unpin" : "Pin"}</button>
+        <button class="btn small danger" data-del="${n.id}">Delete</button></div></div>`).join("") || '<p class="note">No notes yet.</p>'}
+  </div>`;
+  $("coNoteForm").onsubmit = async e => {
+    e.preventDefault();
+    const title = $("co-title").value.trim();
+    if (!title) return toast("Give the note a title.", true);
+    check(await db.from("co_note").insert({ title, body: $("co-body").value, visibility: $("co-vis").value, pinned: $("co-pin").checked,
+      author_id: state.session.user.id, author_name: state.me.display_name }), "Saving the note");
+    toast("Note added"); coNotes();
+  };
+  $("coBody").querySelectorAll("[data-pin]").forEach(b => b.onclick = async () => {
+    check(await db.from("co_note").update({ pinned: b.dataset.val === "true", updated_at: new Date().toISOString() }).eq("id", b.dataset.pin), "Updating the note"); coNotes(); });
+  $("coBody").querySelectorAll("[data-del]").forEach(b => confirmClick(b, async () => {
+    check(await db.from("co_note").delete().eq("id", b.dataset.del), "Deleting the note"); toast("Note deleted"); coNotes(); }));
+}
+async function coLinks() {
+  const rows = check(await db.from("co_link").select("*").order("category").order("title"), "Loading links");
+  const groups = {};
+  rows.forEach(l => { (groups[l.category || "Other"] ||= []).push(l); });
+  $("coBody").innerHTML = `<div class="co-grid">
+    <form class="card form" id="coLinkForm">
+      <label class="f">Title<input type="text" id="cl-title" maxlength="200" required></label>
+      <label class="f">Link (https://…)<input type="url" id="cl-url" maxlength="2000" required></label>
+      <label class="f">Category<input type="text" id="cl-cat" maxlength="60" placeholder="e.g. Handbooks"></label>
+      ${visSelect()}
+      <div class="wide"><button class="btn primary" type="submit">Add link</button></div>
+    </form>
+    ${Object.entries(groups).map(([cat, ls]) => `<div class="card"><h3>${esc(cat)}</h3><div class="list">${ls.map(l => `<div>
+      <span class="grow"><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.title)}</a> ${visTag(l.visibility)}<br><small class="mono">${esc(l.url)}</small></span>
+      <button class="btn small danger" data-del="${l.id}">Delete</button></div>`).join("")}</div></div>`).join("") || '<p class="note">No links yet.</p>'}
+  </div>`;
+  $("coLinkForm").onsubmit = async e => {
+    e.preventDefault();
+    const url = $("cl-url").value.trim(), title = $("cl-title").value.trim();
+    if (!title) return toast("Give the link a title.", true);
+    if (!/^https:\/\/[^\s<>"'`]+$/.test(url)) return toast("Only https:// links are allowed.", true);
+    check(await db.from("co_link").insert({ title, url, category: $("cl-cat").value.trim() || null, visibility: $("co-vis").value,
+      author_id: state.session.user.id, author_name: state.me.display_name }), "Saving the link");
+    toast("Link added"); coLinks();
+  };
+  $("coBody").querySelectorAll("[data-del]").forEach(b => confirmClick(b, async () => {
+    check(await db.from("co_link").delete().eq("id", b.dataset.del), "Deleting the link"); toast("Link deleted"); coLinks(); }));
+}
+const ALLOWED_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp", "text/plain",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation"];
+async function coDocs() {
+  const rows = check(await db.from("co_document").select("*").order("created_at", { ascending: false }), "Loading documents");
+  $("coBody").innerHTML = `<div class="co-grid">
+    <form class="card form" id="coDocForm">
+      <label class="f">Title<input type="text" id="cd-title" maxlength="200" required></label>
+      <label class="f">File (PDF, image, Word, Excel, PowerPoint, text · max 10 MB)<input type="file" id="cd-file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.docx,.xlsx,.pptx" required></label>
+      ${visSelect()}
+      <div class="wide"><button class="btn primary" type="submit" id="cd-submit">Upload</button></div>
+    </form>
+    <div class="card"><div class="list">${rows.map(d => `<div><span class="d">${fmtDate(d.created_at.slice(0, 10))}</span>
+      <span class="grow">${esc(d.title)} ${visTag(d.visibility)}<br><small class="mono">${esc(d.file_name)} · ${(d.size_bytes / 1048576).toFixed(2)} MB · ${esc(d.author_name || "")}</small></span>
+      <button class="btn small" data-get="${d.id}">Download</button><button class="btn small danger" data-del="${d.id}">Delete</button></div>`).join("") || '<p class="note">No documents yet.</p>'}</div></div>
+  </div>`;
+  $("coDocForm").onsubmit = async e => {
+    e.preventDefault();
+    const file = $("cd-file").files[0], title = $("cd-title").value.trim(), vis = $("co-vis").value;
+    if (!title || !file) return toast("Give a title and choose a file.", true);
+    if (file.size > 10485760) return toast("The file is larger than 10 MB.", true);
+    if (!ALLOWED_TYPES.includes(file.type)) return toast("This file type is not allowed.", true);
+    const safeName = file.name.replace(/[^A-Za-z0-9._ -]/g, "_").slice(-120) || "file";
+    const path = `${vis}/${crypto.randomUUID()}/${safeName}`;
+    $("cd-submit").disabled = true;
+    try {
+      check(await db.storage.from("co-documents").upload(path, file, { contentType: file.type, upsert: false }), "Uploading");
+      const ins = await db.from("co_document").insert({ title, storage_path: path, file_name: file.name.slice(0, 200), mime_type: file.type,
+        size_bytes: file.size, visibility: vis, author_id: state.session.user.id, author_name: state.me.display_name });
+      if (ins.error) { await db.storage.from("co-documents").remove([path]); check(ins, "Saving the document"); }
+      toast("Document uploaded"); coDocs();
+    } finally { $("cd-submit").disabled = false; }
+  };
+  $("coBody").querySelectorAll("[data-get]").forEach(b => b.onclick = async () => {
+    const d = rows.find(x => x.id === +b.dataset.get);
+    const blob = check(await db.storage.from("co-documents").download(d.storage_path), "Downloading");
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = d.file_name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  });
+  $("coBody").querySelectorAll("[data-del]").forEach(b => confirmClick(b, async () => {
+    const d = rows.find(x => x.id === +b.dataset.del);
+    check(await db.storage.from("co-documents").remove([d.storage_path]), "Deleting the file");
+    check(await db.from("co_document").delete().eq("id", d.id), "Deleting the document");
+    toast("Document deleted"); coDocs();
+  }));
+}
+async function coLogins() {
+  const rows = check(await db.from("officer_account").select("user_id, linked_at, person_id, person!officer_account_person_id_fkey(display_name)").order("linked_at"), "Loading officer logins");
+  $("coBody").innerHTML = `<p class="note">Logins linked to a roster entry. Rights end automatically when an officer is demoted below LT or discharged. Regimental Command can remove a login.</p>
+    <div class="frame"><table><thead><tr><th>Officer</th><th>Rank</th><th>Linked</th><th></th></tr></thead><tbody>
+    ${rows.map(r => {
+      const m = state.roster.find(x => x.person_id === r.person_id), mine = r.user_id === state.session?.user.id;
+      return `<tr><td>${esc(r.person?.display_name)}${mine ? ' <span class="tag">you</span>' : ""}</td><td>${esc(m?.rank || "not serving")}</td>
+        <td class="mono">${fmtDate(r.linked_at.slice(0, 10))}</td><td>${isRegcom() && !mine ? `<button class="btn small danger" data-unlink="${r.user_id}">Remove</button>` : ""}</td></tr>`;
+    }).join("") || '<tr><td colspan="4" class="empty">No officer logins yet.</td></tr>'}</tbody></table></div>`;
+  $("coBody").querySelectorAll("[data-unlink]").forEach(b => confirmClick(b, async () => {
+    const res = check(await db.from("officer_account").delete().eq("user_id", b.dataset.unlink).select(), "Removing the login");
+    toast(res.length ? "Login removed" : "Only Regimental Command can remove logins", !res.length);
+    coLogins();
+  }, "Remove"));
+}
 
 /* ---------- add member ---------- */
 let checkTimer;
@@ -606,33 +908,15 @@ async function loadChanges() {
     const d = r.action === "DELETE" ? o : n;
     return Object.entries(d).filter(([k, v]) => v !== null && !k.endsWith("_id") && k !== "id").slice(0, 5).map(([k, v]) => `${esc(k)}: ${esc(JSON.stringify(v))}`).join(" · ");
   };
-  const by = r => r.actor ? esc(names.get(r.actor) || "removed login") : (r.table_name === "duty_log" && r.new_data?.source === "self" ? "hours form" : "admin");
+  const by = r => r.actor ? esc(names.get(r.actor) || "removed login") : "members area / admin";
   $("changesBody").innerHTML = list.length ? list.map(r => `<tr><td class="mono">${new Date(r.at).toLocaleString("en-GB")}</td><td>${by(r)}</td><td>${esc(r.table_name)}</td><td>${esc(r.action.toLowerCase())}</td><td style="font-size:12px">${describe(r)}</td></tr>`).join("")
     : `<tr><td colspan="5" class="empty">No changes yet.</td></tr>`;
 }
 $("changesReload").onclick = loadChanges;
 
-/* ---------- officer logins ---------- */
-async function loadOfficers() {
-  const rows = check(await db.from("officer_account").select("user_id, linked_at, person_id, person!officer_account_person_id_fkey(display_name)").order("linked_at"), "Loading officer logins");
-  const regcom = !!state.me?.is_regcom;
-  $("officersBody").innerHTML = rows.length ? rows.map(r => {
-    const m = state.roster.find(x => x.person_id === r.person_id);
-    const mine = r.user_id === state.session?.user.id;
-    return `<tr><td>${esc(r.person?.display_name)}${mine ? ' <span class="tag">you</span>' : ""}</td><td>${esc(m?.rank || "not serving")}</td>
-      <td class="mono">${fmtDate(r.linked_at.slice(0, 10))}</td>
-      <td>${regcom && !mine ? `<button class="btn small danger" data-unlink="${r.user_id}">Remove</button>` : ""}</td></tr>`;
-  }).join("") : `<tr><td colspan="4" class="empty">No officer logins yet.</td></tr>`;
-  $("officersBody").querySelectorAll("[data-unlink]").forEach(b => confirmClick(b, async () => {
-    const res = check(await db.from("officer_account").delete().eq("user_id", b.dataset.unlink).select(), "Removing the login");
-    toast(res.length ? "Login removed" : "Only Regimental Command can remove logins", !res.length);
-    loadOfficers();
-  }, "Remove"));
-}
-
 /* ---------- start ---------- */
 (async () => {
-  resetHoursForm();
+  resetMemberDates();
   try {
     await refreshMe();
     await loadRanks();

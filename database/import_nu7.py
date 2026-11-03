@@ -480,7 +480,7 @@ def main(zip_path, out_dir):
         if first_seen[pid] is None or when < first_seen[pid]:
             first_seen[pid] = when
 
-    memberships, current = [], {}
+    memberships, current, member_notes = [], {}, []
     for m in roster:
         p = people.by_steam[m["steam"]]
         status = (m["status"] or "").strip()
@@ -490,7 +490,9 @@ def main(zip_path, out_dir):
         mid = str(uuid.uuid4())
         current[p.id] = mid
         memberships.append((mid, p.id, RANK_ID[m["rank"]], recruited.get(m["steam"]) or first_seen[p.id],
-                            None, None, None, None, None, override, m["notes"]))
+                            None, None, None, None, None, override))
+        if m["notes"]:
+            member_notes.append((p.id, m["notes"], "Imported from the sheet"))
         parse_date(m["last_promo_raw"], where=f"Roster, {m['name']} (Last Promotion Date)")
 
     for row in di_rows:
@@ -510,7 +512,7 @@ def main(zip_path, out_dir):
         memberships.append((str(uuid.uuid4()), p.id, RANK_ID[rank], None, when,
                             dtype if dtype in ("honourable", "dishonourable") else None,
                             clean(cell(row, di_cols, "Comments")), officer.id if officer else None, officer_raw,
-                            None, None))
+                            None))
 
     # ---- duty logs
     duty = []
@@ -759,8 +761,9 @@ def main(zip_path, out_dir):
     sql.insert("person_alias", ["person_id", "name", "first_seen"],
                [(p.id, n, w) for p in people.all for n, w in p.names.items()])
     sql.insert("membership", ["id", "person_id", "rank_id", "recruited_at", "left_at", "discharge_type",
-                              "discharge_reason", "discharged_by", "discharged_by_raw", "status_override", "notes"],
+                              "discharge_reason", "discharged_by", "discharged_by_raw", "status_override"],
                memberships)
+    sql.insert("member_note", ["person_id", "body", "author_name"], member_notes)
     sql.insert("rank_change", ["person_id", "from_rank_id", "to_rank_id", "kind", "effective_on",
                                "officer_id", "officer_raw", "comment"], rank_changes)
     sql.insert("qualification", ["id", "name"], [(i, n) for n, i in quals.items()])

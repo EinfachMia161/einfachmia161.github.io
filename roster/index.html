@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://vkqrvppfwqjmxxtjowbn.supabase.co wss://vkqrvppfwqjmxxtjowbn.supabase.co; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://vkqrvppfwqjmxxtjowbn.supabase.co wss://vkqrvppfwqjmxxtjowbn.supabase.co; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Nu-7 Roster (Test)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,12 +16,12 @@
   <div class="brand">Nu-7 Roster<small>TEST</small></div>
   <nav aria-label="Sections">
     <button data-view="roster" aria-current="page">Roster</button>
-    <button data-view="hours">Log hours</button>
+    <button data-view="members">Members area</button>
     <button data-view="board">Promotion board</button>
     <button data-view="blacklist">Blacklist</button>
+    <button data-view="co" data-officer hidden>CO area</button>
     <button data-view="recruit" data-officer hidden>Add member</button>
     <button data-view="changes" data-officer hidden>Change log</button>
-    <button data-view="officers" data-officer hidden>Officers</button>
   </nav>
   <div class="who-am-i">
     <span class="conn" id="conn"><i></i><span>Connecting…</span></span>
@@ -50,19 +50,68 @@
     <p class="note">Status, hours, strikes, cooldown and last promotion are calculated by the database from the logs. Click a member to open their file.</p>
   </section>
 
-  <!-- LOG HOURS (PVT - CSG, no login) -->
-  <section class="view narrow" id="view-hours" hidden>
-    <h2>Log your hours</h2>
-    <p class="note">For Privates to Command Sergeants. Enter your Steam ID and your Discord username exactly as on the roster. Officers log their hours through another officer.</p>
-    <form class="card form" id="hoursForm" novalidate>
-      <label class="f">Steam ID<input type="text" id="h-steam" placeholder="STEAM_0:1:12345678" autocomplete="off" required></label>
-      <label class="f">Discord username<input type="text" id="h-discord" autocomplete="off" required></label>
+  <!-- MEMBERS AREA (no login) -->
+  <section class="view" id="view-members" hidden>
+    <h2>Members area</h2>
+    <p class="note">For everyone on the roster. Prove who you are with your Steam ID and your Discord username exactly as on the roster. 5 wrong attempts lock your Steam ID for 15 minutes.</p>
+    <div class="card form narrow-form">
+      <label class="f">Steam ID<input type="text" id="m-steam" placeholder="STEAM_0:1:12345678" autocomplete="off"></label>
+      <label class="f">Discord username<input type="text" id="m-discord" autocomplete="off"></label>
+      <p class="note wide" id="m-officer-hint" hidden>You are signed in as an officer: for trainings and tryouts, enter the host's Steam ID and leave Discord empty.</p>
+      <div class="hp" aria-hidden="true"><label>Leave empty<input type="text" id="m-website" tabindex="-1" autocomplete="off"></label></div>
+    </div>
+    <div class="tabs" role="tablist" id="memberTabs">
+      <button role="tab" data-mtab="hours" aria-selected="true">Log hours</button>
+      <button role="tab" data-mtab="file" aria-selected="false">My file</button>
+      <button role="tab" data-mtab="leave" aria-selected="false">Request LOA / ROA</button>
+      <button role="tab" data-mtab="training" aria-selected="false">Log training</button>
+      <button role="tab" data-mtab="tryout" aria-selected="false">Log tryout</button>
+    </div>
+    <div id="m-result" aria-live="polite"></div>
+
+    <form class="card form" id="hoursForm" data-mpanel="hours" novalidate>
+      <p class="note wide">Privates to Command Sergeants. Officers log their hours through another officer.</p>
       <label class="f">Date<input type="date" id="h-date" required></label>
       <label class="f">Hours<input type="number" id="h-hours" min="0.5" max="12" step="0.5" value="1" required></label>
       <label class="f wide">What did you do? (optional)<input type="text" id="h-comment" maxlength="300"></label>
-      <div class="hp" aria-hidden="true"><label>Leave empty<input type="text" id="h-website" tabindex="-1" autocomplete="off"></label></div>
-      <div class="wide" id="h-result" aria-live="polite"></div>
       <div class="wide"><button class="btn primary" type="submit" id="h-submit">Log hours</button></div>
+    </form>
+
+    <div class="card" data-mpanel="file" hidden>
+      <div><button class="btn primary" id="f-load">Show my file</button></div>
+      <div id="f-out"></div>
+    </div>
+
+    <form class="card form" id="leaveReqForm" data-mpanel="leave" hidden novalidate>
+      <label class="f">Type<select id="lr-type"><option value="LOA">LOA (leave of absence)</option><option value="ROA">ROA (reduced activity)</option></select></label>
+      <label class="f">From<input type="date" id="lr-start" required></label>
+      <label class="f">Until<input type="date" id="lr-end" required></label>
+      <label class="f wide">Reason (optional)<input type="text" id="lr-reason" maxlength="300"></label>
+      <div class="wide"><button class="btn primary" type="submit">Send request</button></div>
+    </form>
+
+    <form class="card form" id="trainingForm" data-mpanel="training" hidden novalidate>
+      <p class="note wide">Hosted by Corporals and above. The Steam ID and Discord above are the host's.</p>
+      <label class="f">Type<select id="t-type"></select></label>
+      <label class="f">Date<input type="date" id="t-date" required></label>
+      <label class="f wide">Description (needed for "Unlisted")<input type="text" id="t-desc" maxlength="300"></label>
+      <div class="wide">
+        <label class="f">Attendees · <span id="t-count">0 selected</span><input type="search" id="t-search" placeholder="Filter names"></label>
+        <div class="picker" id="t-picker"></div>
+      </div>
+      <label class="f wide">Comment (optional)<input type="text" id="t-comment" maxlength="1000"></label>
+      <div class="wide"><button class="btn primary" type="submit">Log training</button></div>
+    </form>
+
+    <form class="card form" id="tryoutForm" data-mpanel="tryout" hidden novalidate>
+      <p class="note wide">Hosted by Corporals and above. The Steam ID and Discord above are the host's. Passed recruits are added to the roster by an officer.</p>
+      <label class="f">Recruit name<input type="text" id="y-name" maxlength="80" required></label>
+      <label class="f">Recruit Steam ID<input type="text" id="y-steam" placeholder="STEAM_0:1:12345678" required></label>
+      <label class="f">Recruit Discord<input type="text" id="y-discord"></label>
+      <label class="f">Result<select id="y-result"><option value="passed">Passed</option><option value="failed">Failed</option></select></label>
+      <label class="f">Quiz score (out of 12)<input type="number" id="y-score" min="0" max="12" step="1"></label>
+      <label class="f wide">Comment (optional)<input type="text" id="y-comment" maxlength="1000"></label>
+      <div class="wide"><button class="btn primary" type="submit">Log tryout</button></div>
     </form>
   </section>
 
@@ -73,6 +122,21 @@
     <div class="tabs" role="tablist" id="stageTabs"></div>
     <div class="reqs" id="reqToggles"></div>
     <div class="frame"><table id="boardTable"></table></div>
+  </section>
+
+  <!-- CO AREA -->
+  <section class="view" id="view-co" hidden>
+    <h2>CO area</h2>
+    <div class="tabs" role="tablist" id="coTabs">
+      <button role="tab" data-co="alerts" aria-selected="true">Alerts</button>
+      <button role="tab" data-co="requests" aria-selected="false">Leave requests</button>
+      <button role="tab" data-co="tryouts" aria-selected="false">Tryouts</button>
+      <button role="tab" data-co="notes" aria-selected="false">Notes</button>
+      <button role="tab" data-co="links" aria-selected="false">Links</button>
+      <button role="tab" data-co="docs" aria-selected="false">Documents</button>
+      <button role="tab" data-co="logins" aria-selected="false">Officer logins</button>
+    </div>
+    <div id="coBody"></div>
   </section>
 
   <!-- ADD MEMBER -->
@@ -106,16 +170,6 @@
     <div class="frame"><table>
       <thead><tr><th>When</th><th>By</th><th>Table</th><th>Action</th><th>Change</th></tr></thead>
       <tbody id="changesBody"></tbody>
-    </table></div>
-  </section>
-
-  <!-- OFFICERS -->
-  <section class="view" id="view-officers" hidden>
-    <h2>Officer logins</h2>
-    <p class="note">Logins linked to a roster entry. Rights end automatically when an officer is demoted below LT or discharged. Regimental Command can remove a login.</p>
-    <div class="frame"><table>
-      <thead><tr><th>Officer</th><th>Rank</th><th>Linked</th><th></th></tr></thead>
-      <tbody id="officersBody"></tbody>
     </table></div>
   </section>
 </main>

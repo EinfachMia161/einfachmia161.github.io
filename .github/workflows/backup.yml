@@ -1,0 +1,73 @@
+# Nightly encrypted backup of the Nu-7 database.
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_DB_URL    the Session pooler connection string, with the database password filled in
+#   BACKUP_PASSPHRASE  a long random passphrase (20+ characters). Keep a copy somewhere safe: without it
+#                      the backups cannot be opened.
+# The dump is encrypted (AES-256) before it is stored, so the artifact is safe even though the repository is public.
+# Restore: see database/README.md.
+
+name: Nightly database backup
+
+on:
+  schedule:
+    - cron: "15 2 * * *"      # 02:15 UTC every night
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check secrets
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DB_URL" ] || [ -z "$PASSPHRASE" ]; then
+            echo "::error::Set the SUPABASE_DB_URL and BACKUP_PASSPHRASE repository secrets."
+            exit 1
+          fi
+          if [ "${#PASSPHRASE}" -lt 20 ]; then
+            echo "::error::BACKUP_PASSPHRASE must be at least 20 characters."
+            exit 1
+          fi
+
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: Dump and encrypt
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          f="nu7-$(date -u +%Y-%m-%d).sql.gz"
+          /usr/lib/postgresql/17/bin/pg_dump "$DB_URL" --no-owner --no-privileges \
+            --schema=public --schema=private | gzip -9 > "$f"
+          gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 \
+            --symmetric --cipher-algo AES256 --output "$f.gpg" "$f" 3<<< "$PASSPHRASE"
+          shred -u "$f"
+          echo "BACKUP_FILE=$f.gpg" >> "$GITHUB_ENV"
+          ls -l "$f.gpg"
+
+      - name: Store encrypted backup (kept 30 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: nu7-backup-${{ github.run_id }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 30
+          if-no-files-found: error

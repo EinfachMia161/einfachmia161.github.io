@@ -22,7 +22,8 @@ Concept for moving the MTF Nu-7 roster from a 30-tab Google Sheet into a proper 
 | --- | --- |
 | `index.html` | The concept page (self-contained; loads fonts from Google Fonts and Mermaid from jsDelivr) |
 | `Nu-7 Database.html` | Redirect to the page, so older links keep working |
-| `roster/` | Roster test site: roster, member files, promotion board, hours form, add member, blacklist, change log, officer logins |
+| `roster/` | Roster test site: roster, member files, promotion board, members area (hours, my file, leave requests, trainings, tryouts), CO area, blacklist, change log |
+| `.github/workflows/backup.yml` | Nightly encrypted database backup |
 | `database/` | Schema, access rules, sheet importer, deploy and test scripts ([details](database/README.md)) |
 
 ## Updating

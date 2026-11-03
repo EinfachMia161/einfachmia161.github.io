@@ -1,4 +1,4 @@
--- Access rules. Load after security.sql.
+-- Access rules. Load last (after security.sql and features.sql).
 --   anon          = anyone with the website (publishable key)
 --   authenticated = anyone with a Supabase login; edits additionally need public.is_officer()
 -- Start from no rights at all: Supabase grants the API roles full rights by default.
@@ -19,7 +19,8 @@ begin
 
   -- Public reading (everything except logins, the change log and Discord names)
   for t in select tablename from pg_tables where schemaname = 'public'
-           and tablename not in ('person', 'officer_account', 'audit_log') loop
+           and tablename not in ('person', 'officer_account', 'audit_log', 'member_note', 'leave_request',
+                                 'co_note', 'co_link', 'co_document') loop
     execute format('grant select on %I to anon, authenticated', t);
     execute format('create policy "public read" on %I for select to anon, authenticated using (true)', t);
   end loop;
@@ -65,3 +66,55 @@ grant execute on function app_today(), is_officer(), is_regcom(), submit_duty(te
 grant execute on function my_officer(), claim_officer(text, text), member_discord(),
   change_rank(uuid, text, text, text, text), add_member(text, text, text, text, boolean),
   discharge_member(uuid, text, text, text) to authenticated;
+
+-- ===== Officer-only tables =====
+grant select, insert, delete on member_note to authenticated;
+create policy "officer read" on member_note for select to authenticated using (public.is_officer());
+create policy "officer write" on member_note for insert to authenticated with check (public.is_officer() and author_id = auth.uid());
+create policy "officer delete" on member_note for delete to authenticated using (public.is_officer());
+
+grant select on leave_request to authenticated;
+create policy "officer read" on leave_request for select to authenticated using (public.is_officer());
+
+do $$
+declare t text;
+begin
+  foreach t in array array['co_note', 'co_link', 'co_document'] loop
+    execute format('grant select, insert, update, delete on %I to authenticated', t);
+    execute format($p$create policy "officer read" on %I for select to authenticated
+                     using (public.is_officer() and (visibility = 'officers' or public.is_regcom()))$p$, t);
+    execute format($p$create policy "officer insert" on %I for insert to authenticated
+                     with check (public.is_officer() and (visibility = 'officers' or public.is_regcom()) and author_id = auth.uid())$p$, t);
+    execute format($p$create policy "officer update" on %I for update to authenticated
+                     using (public.is_officer() and (visibility = 'officers' or public.is_regcom()))
+                     with check (public.is_officer() and (visibility = 'officers' or public.is_regcom()))$p$, t);
+    execute format($p$create policy "officer delete" on %I for delete to authenticated
+                     using (public.is_officer() and (visibility = 'officers' or public.is_regcom()))$p$, t);
+  end loop;
+  foreach t in array array['member_note', 'leave_request', 'co_note', 'co_link', 'co_document', 'training',
+                           'training_attendee', 'tryout', 'tryout_quiz'] loop
+    execute format('drop trigger if exists audit on %I', t);
+    execute format('create trigger audit after insert or update or delete on %I for each row execute function audit_change()', t);
+  end loop;
+end $$;
+
+-- ===== Private document storage (bucket co-documents) =====
+-- Paths are "officers/<uuid>/<file>" or "regcom/<uuid>/<file>"; regcom files need Regimental Command.
+drop policy if exists "nu7 officers read documents" on storage.objects;
+drop policy if exists "nu7 officers upload documents" on storage.objects;
+drop policy if exists "nu7 officers delete documents" on storage.objects;
+create policy "nu7 officers read documents" on storage.objects for select to authenticated
+  using (bucket_id = 'co-documents' and public.is_officer()
+         and ((storage.foldername(name))[1] = 'officers' or ((storage.foldername(name))[1] = 'regcom' and public.is_regcom())));
+create policy "nu7 officers upload documents" on storage.objects for insert to authenticated
+  with check (bucket_id = 'co-documents' and public.is_officer()
+         and ((storage.foldername(name))[1] = 'officers' or ((storage.foldername(name))[1] = 'regcom' and public.is_regcom())));
+create policy "nu7 officers delete documents" on storage.objects for delete to authenticated
+  using (bucket_id = 'co-documents' and public.is_officer()
+         and ((storage.foldername(name))[1] = 'officers' or ((storage.foldername(name))[1] = 'regcom' and public.is_regcom())));
+
+-- ===== Functions of features.sql =====
+grant execute on function my_file(text, text), request_leave(text, text, text, date, date, text),
+  log_training(text, text, int, date, uuid[], text, text),
+  log_tryout(text, text, text, text, text, text, int, text) to anon, authenticated;
+grant execute on function decide_leave_request(bigint, boolean, text), co_alerts() to authenticated;

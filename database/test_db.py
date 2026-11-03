@@ -28,7 +28,7 @@ def test(name):
                 print("PASS", name)
             except Exception as e:  # noqa: BLE001
                 FAIL.append((name, e))
-                print("FAIL", name, "->", str(e).splitlines()[0])
+                print("FAIL", name, "->", (str(e).splitlines() or [repr(e)])[0])
         return fn
     return wrap
 
@@ -56,6 +56,7 @@ def officer(con, name):
     """Link a fresh simulated login to the named member and switch to it."""
     as_admin(con)
     uid = uuid.uuid4()
+    con.execute("delete from officer_account where person_id = (select person_id from v_roster where display_name = %s)", (name,))
     con.execute("insert into officer_account (user_id, person_id) select %s, person_id from v_roster where display_name = %s",
                 (uid, name))
     as_user(con, uid)
@@ -122,7 +123,7 @@ def _(con):
     mid, pid, *_ = member(con, "Krater J.")
     as_anon(con)
     expect_error(con, "insert into duty_log (person_id, logged_on, hours) values (%s, '2026-11-02', 1)", (pid,), "permission denied")
-    expect_error(con, "update membership set notes = 'x'", (), "permission denied")
+    expect_error(con, "update membership set status_override = 'x'", (), "permission denied")
     expect_error(con, "delete from strike where true", (), "permission denied")
     expect_error(con, "select change_rank(%s, 'SPC', 'promoted')", (mid,), "permission denied")
     expect_error(con, "select add_member('STEAM_0:1:999000111', 'X')", (), "permission denied")
@@ -135,7 +136,7 @@ def _(con):
     as_user(con, uuid.uuid4())
     assert one(con, "select is_officer()")[0] is False
     expect_error(con, "insert into strike (person_id, weight, reason, issued_on) values (%s, 1, 'x', '2026-11-03')", (pid,), "row-level security")
-    assert con.execute("update membership set notes = 'hacked' where id = %s", (mid,)).rowcount == 0
+    assert con.execute("update membership set status_override = 'hacked' where id = %s", (mid,)).rowcount == 0
     assert con.execute("update person set display_name = 'hacked' where id = %s", (pid,)).rowcount == 0
     assert con.execute("delete from duty_log where person_id = %s", (pid,)).rowcount == 0
     expect_error(con, "select change_rank(%s, 'SPC', 'promoted')", (mid,), "only signed-in officers")
@@ -443,6 +444,204 @@ def _(con):
     as_anon(con)
     o = one(con, "select members, active, semi_active, inactive, on_loa, on_roa from v_overview")
     assert o[0] == 46 and sum(o[1:]) == 46, o
+
+
+# ================================================================ CO area
+
+@test("CO area and member notes are invisible to visitors and plain logins")
+def _(con):
+    as_anon(con)
+    for t in ("co_note", "co_link", "co_document", "member_note", "leave_request"):
+        expect_error(con, f"select * from {t}", (), "permission denied")
+    expect_error(con, "select co_alerts()", (), "permission denied")
+    as_user(con, uuid.uuid4())
+    for t in ("co_note", "co_link", "co_document", "member_note", "leave_request"):
+        assert one(con, f"select count(*) from {t}")[0] == 0, t
+    expect_error(con, "select co_alerts()", (), "only signed-in officers")
+
+
+@test("imported member notes are officer-only and gone from the public roster")
+def _(con):
+    as_anon(con)
+    expect_error(con, "select notes from v_roster", (), "does not exist")
+    officer(con, "Mason R. Holt")
+    assert one(con, "select count(*) from member_note")[0] == 3
+
+
+@test("officers write notes and links; Regimental Command-only entries stay hidden from other officers")
+def _(con):
+    uid = officer(con, "Mason R. Holt")
+    con.execute("insert into co_note (title, body, author_id) values ('Meeting', 'Agenda', %s)", (uid,))
+    con.execute("insert into co_link (title, url, category, author_id) values ('Handbook', 'https://example.org/h', 'Docs', %s)", (uid,))
+    expect_error(con, "insert into co_note (title, visibility, author_id) values ('Secret', 'regcom', %s)", (uid,), "row-level security")
+    expect_error(con, "insert into co_note (title, author_id) values ('Spoofed', gen_random_uuid())", (), "row-level security")
+    reg = officer(con, "Jess 'Hare' Cottontail")
+    con.execute("insert into co_note (title, visibility, author_id) values ('RegCom only', 'regcom', %s)", (reg,))
+    assert one(con, "select count(*) from co_note where title = 'RegCom only'")[0] == 1
+    officer(con, "Mason R. Holt")
+    assert one(con, "select count(*) from co_note where title = 'RegCom only'")[0] == 0
+    assert one(con, "select count(*) from co_note where title = 'Meeting'")[0] == 1
+
+
+@test("links must be plain https (no javascript: or data: links)")
+def _(con):
+    uid = officer(con, "Mason R. Holt")
+    for bad in ("javascript:alert(1)", "http://example.org", "data:text/html,x", "https://ex ample.org", 'https://x.org/"onmouseover=1'):
+        expect_error(con, "insert into co_link (title, url, author_id) values ('x', %s, %s)", (bad, uid), "check")
+
+
+@test("document storage: officers upload to officers/, only Regimental Command to regcom/")
+def _(con):
+    off = officer(con, "Mason R. Holt")
+    con.execute("insert into storage.objects (bucket_id, name, owner_id) values ('co-documents', %s, %s)", (f"officers/{uuid.uuid4()}/a.pdf", str(off)))
+    expect_error(con, "insert into storage.objects (bucket_id, name, owner_id) values ('co-documents', %s, %s)",
+                 (f"regcom/{uuid.uuid4()}/b.pdf", str(off)), "row-level security")
+    as_user(con, uuid.uuid4())
+    expect_error(con, "insert into storage.objects (bucket_id, name) values ('co-documents', %s)", (f"officers/{uuid.uuid4()}/c.pdf",), "row-level security")
+    assert one(con, "select count(*) from storage.objects where bucket_id = 'co-documents'")[0] == 0
+    as_anon(con)
+    assert one(con, "select count(*) from storage.objects where bucket_id = 'co-documents'")[0] == 0
+
+
+@test("member notes: officers add them, the author cannot be faked")
+def _(con):
+    uid = officer(con, "Mason R. Holt")
+    _m, pid, *_ = member(con, "Krater J.")
+    con.execute("insert into member_note (person_id, body, author_id, author_name) values (%s, 'Good attitude', %s, 'Mason')", (pid, uid))
+    expect_error(con, "insert into member_note (person_id, body, author_id) values (%s, 'x', gen_random_uuid())", (pid,), "row-level security")
+
+
+# ================================================================ members area
+
+@test("my file: shows own hours and requirements, needs the right Discord name")
+def _(con):
+    as_anon(con)
+    r = one(con, "select my_file('STEAM_0:1:111662696', 'krater_')")[0]
+    assert r["ok"] and r["name"] == "Krater J." and r["requirements"] and "duty" in r, r
+    assert one(con, "select my_file('STEAM_0:1:111662696', 'wrong')")[0]["ok"] is False
+
+
+@test("leave request: one pending at a time, limits, officer approval creates the LOA")
+def _(con):
+    as_anon(con)
+    q = "select request_leave('STEAM_0:1:111662696', 'krater_', %s, %s::date, %s::date, 'exams')"
+    assert one(con, q, "LOA", "2026-11-03", "2027-01-10")[0]["ok"] is False     # > 60 days
+    assert one(con, q, "LOA", "2026-11-05", "2026-11-04")[0]["ok"] is False     # backwards
+    assert one(con, q, "XYZ", "2026-11-03", "2026-11-05")[0]["ok"] is False
+    assert one(con, q, "LOA", "2026-11-03", "2026-11-09")[0]["ok"] is True
+    assert one(con, q, "ROA", "2026-11-10", "2026-11-12")[0]["ok"] is False     # already pending
+    as_user(con, uuid.uuid4())
+    expect_error(con, "select decide_leave_request(1, true)", (), "only signed-in officers")
+    officer(con, "Mason R. Holt")
+    rid = one(con, "select id from leave_request where status = 'pending'")[0]
+    assert one(con, "select decide_leave_request(%s, true, 'ok')", rid)[0]["ok"] is True
+    assert one(con, "select status from v_roster where display_name = 'Krater J.'")[0] == "LOA"
+    expect_error(con, "select decide_leave_request(%s, false)", (rid,), "already been decided")
+
+
+@test("leave request: an officer can decline; nothing is added to the roster")
+def _(con):
+    as_anon(con)
+    assert one(con, "select request_leave('STEAM_0:1:111662696', 'krater_', 'ROA', '2026-11-04', '2026-11-06')")[0]["ok"]
+    officer(con, "Mason R. Holt")
+    rid = one(con, "select id from leave_request where status = 'pending'")[0]
+    one(con, "select decide_leave_request(%s, false, 'not now')", rid)
+    assert one(con, "select status, leave_id from leave_request where id = %s", rid) == ("declined", None)
+
+
+@test("training form: an NCO logs a training; it satisfies the hosting requirement")
+def _(con):
+    as_admin(con)
+    att = [r[0] for r in con.execute("select person_id from v_roster where rank = 'PVT' limit 2").fetchall()]
+    tid = one(con, "select id from training_type where name = 'Hacking'")[0]
+    as_anon(con)
+    r = one(con, "select log_training('STEAM_0:0:803597514', 'cancer6551', %s, '2026-11-03', %s::uuid[], null, 'went well')", tid, att)[0]
+    assert r["ok"] is True, r
+    assert one(con, "select auto_met from v_promotion_board where display_name = 'Winston ''Duke'' Barns' and kind = 'hosted_training'")[0] is True
+    assert one(con, "select count(*) from training_attendee ta join training t on t.id = ta.training_id where t.comment = 'went well'")[0] == 2
+
+
+@test("training form: PVT hosts, future dates, host-only lists and missing descriptions are refused")
+def _(con):
+    as_admin(con)
+    att = [r[0] for r in con.execute("select person_id from v_roster where rank = 'PVT' limit 2").fetchall()]
+    hack = one(con, "select id from training_type where name = 'Hacking'")[0]
+    unl = one(con, "select id from training_type where name = 'Unlisted'")[0]
+    host_pid = one(con, "select person_id from v_roster where display_name = 'Winston ''Duke'' Barns'")[0]
+    as_anon(con)
+    q = "select log_training(%s, %s, %s, %s::date, %s::uuid[], %s, null)"
+    assert one(con, q, "STEAM_0:1:111662696", "krater_", hack, "2026-11-03", att, None)[0]["ok"] is False      # PVT host
+    assert one(con, q, "STEAM_0:0:803597514", "cancer6551", hack, "2026-11-04", att, None)[0]["ok"] is False   # future
+    assert one(con, q, "STEAM_0:0:803597514", "cancer6551", hack, "2026-11-03", [host_pid], None)[0]["ok"] is False  # only host
+    assert one(con, q, "STEAM_0:0:803597514", "cancer6551", unl, "2026-11-03", att, None)[0]["ok"] is False    # unlisted, no text
+    assert one(con, q, "STEAM_0:0:803597514", "cancer6551", unl, "2026-11-03", att, "Vehicle drill")[0]["ok"] is True
+
+
+@test("tryout form: an NCO logs a pass; blacklisted passes need an officer")
+def _(con):
+    as_anon(con)
+    r = one(con, "select log_tryout('STEAM_0:1:588896009', 'subnaticka69_95731', 'New Guy', 'STEAM_0:1:999000777', 'newguy', 'passed', 11, null)")[0]
+    assert r["ok"] is True, r
+    assert one(con, "select auto_met from v_promotion_board where display_name = 'Ryley Roberson' and kind = 'hosted_tryout'")[0] is True
+    as_admin(con)
+    sid = one(con, "select steam_id from v_active_blacklist where steam_id is not null and steam_id not in (select steam_id from v_roster) limit 1")[0]
+    as_anon(con)
+    r = one(con, "select log_tryout('STEAM_0:1:588896009', 'subnaticka69_95731', 'Banned', %s, null, 'passed', 12, null)", sid)[0]
+    assert r["ok"] is False and "blacklisted" in r["message"], r
+    assert one(con, "select log_tryout('STEAM_0:1:588896009', 'subnaticka69_95731', 'Krater', 'STEAM_0:1:111662696', null, 'passed', 12, null)")[0]["ok"] is False
+    officer(con, "Mason R. Holt")
+    r = one(con, "select log_tryout('STEAM_0:1:588896009', null, 'Banned', %s, null, 'passed', 12, 'officer decision')", sid)[0]
+    assert r["ok"] is True and r["blacklisted"] is True, r
+
+
+@test("members area: 5 wrong Discord names lock that Steam ID for every form")
+def _(con):
+    as_anon(con)
+    for i in range(5):
+        one(con, "select my_file('STEAM_0:1:111662696', %s)", f"guess{i}")
+    r = one(con, "select request_leave('STEAM_0:1:111662696', 'krater_', 'LOA', '2026-11-04', '2026-11-06')")[0]
+    assert r["ok"] is False and "too many" in r["message"].lower(), r
+
+
+# ================================================================ alerts, notifications, backups
+
+@test("alerts list low hours, training numbers and requests; the text report is built")
+def _(con):
+    officer(con, "Mason R. Holt")
+    a = one(con, "select co_alerts()")[0]
+    for k in ("low_hours", "trainings_7d", "tryouts_7d", "training_overdue", "pending_requests", "leave_ending", "ready_for_promotion"):
+        assert k in a, k
+    assert all(float(x["hours"]) < float(x["required"]) for x in a["low_hours"])
+    as_admin(con)
+    text = one(con, "select private.alerts_text()")[0]
+    assert "LOW HOURS" in text, text[:200]
+
+
+@test("daily report runs without email or Discord set up (nothing sent, no error)")
+def _(con):
+    as_admin(con)
+    r = one(con, "select private.send_daily_alerts()")[0]
+    assert r["email"] is False, r
+    con.execute("select private.discord_post('test')")
+
+
+@test("visitors cannot read snapshots, settings or call the report and backup functions")
+def _(con):
+    for fn in ("private.take_snapshot()", "private.send_daily_alerts()", "private.alerts()", "private.set_alert_email('a@b.co')"):
+        as_anon(con)
+        expect_error(con, f"select {fn}", (), "permission denied")
+    as_anon(con)
+    expect_error(con, "select * from private.snapshot", (), "permission denied")
+    expect_error(con, "select * from private.config", (), "permission denied")
+
+
+@test("daily snapshot stores every table and can be read back")
+def _(con):
+    as_admin(con)
+    assert one(con, "select private.take_snapshot()")[0] == 25
+    n = one(con, "select row_count from private.snapshot where table_name = 'membership' order by id desc limit 1")[0]
+    assert n == one(con, "select count(*) from membership")[0]
+    assert one(con, "select count(*) from private.snapshot_rows('membership', current_date)")[0] == n
 
 
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
