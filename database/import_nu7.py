@@ -766,7 +766,8 @@ def main(zip_path, out_dir):
     sql.insert("qualification", ["id", "name"], [(i, n) for n, i in quals.items()])
     sql.insert("requirement", ["id", "from_rank_id", "title", "kind", "qualification_id", "params", "sort_order"], reqs)
     sql.insert("member_requirement", ["membership_id", "requirement_id", "done"], ticks)
-    sql.insert("duty_log", ["person_id", "logged_on", "hours", "rank_id", "rank_raw", "comment"], duty)
+    sql.insert("duty_log", ["person_id", "logged_on", "hours", "rank_id", "rank_raw", "comment", "source"],
+               [d + ("import",) for d in duty])
     sql.insert("training_type", ["id", "name", "is_basic_training"],
                [(i, n, "basic training" in n.lower()) for n, i in type_ids.items()])
     sql.insert("training", ["id", "host_id", "host_raw", "type_id", "held_on", "description", "comment"], trainings)

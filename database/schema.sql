@@ -92,7 +92,10 @@ create table duty_log (
   hours numeric(5,1) not null check (hours >= 0),
   rank_id int references rank,
   rank_raw text,
-  comment text
+  comment text,
+  source text not null default 'officer' check (source in ('officer', 'self', 'import')),
+  rejected boolean not null default false,       -- set by an officer; rejected hours do not count
+  logged_at timestamptz not null default now()
 );
 create index duty_log_person_day on duty_log (person_id, logged_on);
 
@@ -284,15 +287,15 @@ create table audit_log (
   action text not null,
   old_data jsonb,
   new_data jsonb,
-  db_role text not null default current_user,
+  actor uuid,                                   -- Supabase login that made the change (null = database admin or hours form)
   at timestamptz not null default now()
 );
 
 create function audit_change() returns trigger
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, pg_temp as $$
 begin
-  insert into audit_log (table_name, action, old_data, new_data)
-  values (tg_table_name, tg_op,
+  insert into audit_log (table_name, action, actor, old_data, new_data)
+  values (tg_table_name, tg_op, auth.uid(),
           case when tg_op <> 'INSERT' then to_jsonb(old) end,
           case when tg_op <> 'DELETE' then to_jsonb(new) end);
   return coalesce(new, old);
@@ -322,7 +325,7 @@ where (b.expires_on is null or b.expires_on > app_today())
   and not exists (select 1 from blacklist_appeal a where a.blacklist_id = b.id and a.decision = 'revoked');
 
 create view v_roster with (security_invoker = true) as
-select m.id as membership_id, p.id as person_id, p.display_name, p.steam_id, p.discord_username,
+select m.id as membership_id, p.id as person_id, p.display_name, p.steam_id,
        r.id as rank_id, r.code as rank, r.name as rank_name, r.sort_order as rank_order,
        rc.id as category_id, rc.name as category,
        coalesce(s.points, 0)                                            as strikes,
@@ -349,7 +352,7 @@ left join lateral (select sum(weight) as points from strike
   where person_id = p.id and (expires_on is null or expires_on > app_today()) and appeal_status <> 'granted') s on true
 -- last N full days plus today (matches the sheet's Hours column, which had no entries for its export day)
 left join lateral (select sum(hours) as hours from duty_log
-  where person_id = p.id and logged_on <= app_today()
+  where person_id = p.id and not rejected and logged_on <= app_today()
     and logged_on >= app_today() - (select value::int from setting where key = 'activity_window_days')) d on true
 -- last promotion, rank bookkeeping or (re)recruitment, whichever is latest
 left join lateral (select greatest(max(effective_on), m.recruited_at) as last_change from rank_change
@@ -401,66 +404,3 @@ select
   (select coalesce(sum(amount), 0) from fund_transaction)                 as fund_balance,
   (select count(*) from training where held_on > app_today() - 7)        as trainings_7d,
   (select count(*) from tryout where held_on > app_today() - 7)          as tryouts_7d;
-
--- ===== Actions used by the website (each runs as one transaction) =====
-
--- Promote or demote a serving member and log it.
-create function change_rank(p_membership uuid, p_to_rank text, p_kind text, p_officer text default null,
-                            p_comment text default null) returns void
-language plpgsql as $$
-declare m membership; to_id int;
-begin
-  select * into m from membership where id = p_membership and left_at is null for update;
-  if not found then raise exception 'This member is not on the roster any more.'; end if;
-  select id into to_id from rank where code = upper(p_to_rank);
-  if to_id is null then raise exception 'Unknown rank "%".', p_to_rank; end if;
-  if to_id = m.rank_id then raise exception 'The member already holds this rank.'; end if;
-  if p_kind = 'promoted' and to_id < m.rank_id then raise exception 'A promotion has to go to a higher rank.'; end if;
-  if p_kind = 'demoted' and to_id > m.rank_id then raise exception 'A demotion has to go to a lower rank.'; end if;
-  if p_kind not in ('promoted', 'demoted') then raise exception 'Choose promoted or demoted.'; end if;
-  insert into rank_change (person_id, from_rank_id, to_rank_id, kind, effective_on, officer_raw, comment)
-  values (m.person_id, m.rank_id, to_id, p_kind, app_today(), nullif(trim(p_officer), ''), nullif(trim(p_comment), ''));
-  update membership set rank_id = to_id where id = m.id;
-end $$;
-
--- Recruit someone (new or returning). Refuses Steam IDs with an active blacklist entry unless p_override is true.
-create function add_member(p_steam_id text, p_name text, p_discord text default null, p_rank text default 'PVT',
-                           p_override boolean default false) returns uuid
-language plpgsql as $$
-declare pid uuid; rid int; mid uuid; sid text := upper(trim(p_steam_id));
-begin
-  if sid !~ '^STEAM_[01]:[01]:[0-9]+$' then raise exception 'Steam ID must look like STEAM_0:1:12345678.'; end if;
-  sid := regexp_replace(sid, '^STEAM_1', 'STEAM_0');
-  if coalesce(trim(p_name), '') = '' then raise exception 'Enter a name.'; end if;
-  select id into rid from rank where code = upper(p_rank);
-  if rid is null then raise exception 'Unknown rank "%".', p_rank; end if;
-  if not p_override and exists (select 1 from v_active_blacklist where steam_id = sid) then
-    raise exception 'This Steam ID is blacklisted. Revoke the blacklist entry first or confirm the override.';
-  end if;
-  select id into pid from person where steam_id = sid;
-  if pid is null then
-    insert into person (steam_id, display_name, discord_username)
-    values (sid, trim(p_name), nullif(trim(p_discord), '')) returning id into pid;
-  else
-    if exists (select 1 from membership where person_id = pid and left_at is null) then
-      raise exception 'This Steam ID is already on the roster.';
-    end if;
-    update person set display_name = trim(p_name),
-                      discord_username = coalesce(nullif(trim(p_discord), ''), discord_username) where id = pid;
-  end if;
-  insert into person_alias (person_id, name, first_seen) values (pid, trim(p_name), app_today()) on conflict do nothing;
-  insert into membership (person_id, rank_id, recruited_at) values (pid, rid, app_today()) returning id into mid;
-  return mid;
-end $$;
-
--- Take a member off the roster.
-create function discharge_member(p_membership uuid, p_type text, p_reason text default null,
-                                 p_officer text default null) returns void
-language plpgsql as $$
-begin
-  if p_type not in ('honourable', 'dishonourable') then raise exception 'Choose honourable or dishonourable.'; end if;
-  update membership set left_at = app_today(), discharge_type = p_type,
-         discharge_reason = nullif(trim(p_reason), ''), discharged_by_raw = nullif(trim(p_officer), '')
-  where id = p_membership and left_at is null;
-  if not found then raise exception 'This member is not on the roster any more.'; end if;
-end $$;

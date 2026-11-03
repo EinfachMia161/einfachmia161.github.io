@@ -3,7 +3,7 @@
 Concept for moving the MTF Nu-7 roster from a 30-tab Google Sheet into a proper database with a website for editing it.
 
 **Concept page:** https://einfachmia161.github.io/
-**Roster test site:** https://einfachmia161.github.io/roster/ (live Supabase database with the full sheet import; anyone with the link can edit)
+**Roster test site:** https://einfachmia161.github.io/roster/ (live Supabase database with the full sheet import; reading is public, editing needs an officer login, PVT–CSG can log their own hours)
 
 ## What's on the page
 
@@ -22,7 +22,7 @@ Concept for moving the MTF Nu-7 roster from a 30-tab Google Sheet into a proper 
 | --- | --- |
 | `index.html` | The concept page (self-contained; loads fonts from Google Fonts and Mermaid from jsDelivr) |
 | `Nu-7 Database.html` | Redirect to the page, so older links keep working |
-| `roster/index.html` | Roster test site: roster, member files, promotion board, add member, blacklist, change log |
+| `roster/` | Roster test site: roster, member files, promotion board, hours form, add member, blacklist, change log, officer logins |
 | `database/` | Schema, access rules, sheet importer, deploy and test scripts ([details](database/README.md)) |
 
 ## Updating
